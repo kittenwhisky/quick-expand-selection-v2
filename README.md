@@ -1,6 +1,6 @@
-# Quick Expand Selection
+# Quick Expand Selection V2
 
-Quick Expand Selection adds two localized Obsidian editor commands:
+Quick Expand Selection V2 is a fork of [Quick Expand Selection](https://github.com/mushan-bit/quick-expand-selection) by MuShan-bit. It adds two localized Obsidian editor commands:
 
 - `Expand selection`
 - `Shrink selection`
@@ -20,5 +20,5 @@ npm run build
 Copy `main.js` and `manifest.json` into:
 
 ```text
-<vault>/.obsidian/plugins/quick-expand-selection/
+<vault>/.obsidian/plugins/quick-expand-selection-v2/
 ```
