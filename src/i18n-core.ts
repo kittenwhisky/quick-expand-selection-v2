@@ -4,6 +4,32 @@ export interface LocaleStrings {
   commands: {
     expandSelection: string;
     shrinkSelection: string;
+    moveToHeading: string;
+  };
+  move: {
+    placeholder: string;
+    noMatch: string;
+    navigate: string;
+    autocomplete: string;
+    move: string;
+    dismiss: string;
+    insert: string;
+    append: string;
+    prepend: string;
+    nothingSelected: string;
+    noHeadings: string;
+    noteChanged: string;
+    partialTitle: string;
+    partialMessage: string;
+    partialConfirm: string;
+    partialCancel: string;
+    settingsHeading: string;
+    toggleHotkey: string;
+    toggleHotkeyDescription: string;
+    toggleHotkeyInvalid: string;
+    cursorAfterMove: string;
+    cursorAfterMoveDescription: string;
+    cursorOptions: Record<"stay" | "follow", string>;
   };
   rules: Record<keyof SelectionRules, { name: string; description: string }>;
   settings: {
@@ -43,7 +69,33 @@ export interface LocaleStrings {
 const en: LocaleStrings = {
   commands: {
     expandSelection: "Expand selection",
-    shrinkSelection: "Shrink selection"
+    shrinkSelection: "Shrink selection",
+    moveToHeading: "Move selection to note heading"
+  },
+  move: {
+    placeholder: "Move selection to note heading…",
+    noMatch: "No matching heading.",
+    navigate: "to navigate",
+    autocomplete: "to autocomplete",
+    move: "to move",
+    dismiss: "to dismiss",
+    insert: "Insert:",
+    append: "Append",
+    prepend: "Prepend",
+    nothingSelected: "Select the text to move first.",
+    noHeadings: "This note has no headings to move the selection under.",
+    noteChanged: "The note changed while choosing a heading, so nothing was moved.",
+    partialTitle: "Move part of a line?",
+    partialMessage: "The selection covers only part of a line. Only the selected text will move, onto its own line under the heading; the rest of the line stays where it is.",
+    partialConfirm: "Move",
+    partialCancel: "Cancel",
+    settingsHeading: "Move selection to note heading",
+    toggleHotkey: "Append/Prepend toggle hotkey",
+    toggleHotkeyDescription: "Switches between Append and Prepend while the heading list is open, e.g. Alt+A or Mod+Shift+P (Mod is Ctrl, or Cmd on macOS). The list remembers your last choice.",
+    toggleHotkeyInvalid: "Use modifiers plus one key, e.g. Alt+A.",
+    cursorAfterMove: "Cursor after moving",
+    cursorAfterMoveDescription: "Where the cursor goes once the text has moved.",
+    cursorOptions: { stay: "Stay where it was", follow: "Follow the moved text" }
   },
   rules: {
     list: { name: "List hierarchy", description: "In a list, expand through the bullet line, the bullet with its children, each parent bullet with its children, then the whole list." },
@@ -94,7 +146,33 @@ const en: LocaleStrings = {
 const zhCn: LocaleStrings = {
   commands: {
     expandSelection: "扩选文本",
-    shrinkSelection: "缩选文本"
+    shrinkSelection: "缩选文本",
+    moveToHeading: "将所选内容移动到笔记标题下"
+  },
+  move: {
+    placeholder: "将所选内容移动到笔记标题下…",
+    noMatch: "没有匹配的标题。",
+    navigate: "导航",
+    autocomplete: "自动补全",
+    move: "移动",
+    dismiss: "关闭",
+    insert: "插入：",
+    append: "追加",
+    prepend: "前置",
+    nothingSelected: "请先选择要移动的文本。",
+    noHeadings: "此笔记中没有可移动到的标题。",
+    noteChanged: "选择标题期间笔记已更改，未移动任何内容。",
+    partialTitle: "移动行的一部分？",
+    partialMessage: "所选内容只覆盖了一行的一部分。只有所选文本会移动，并单独成行放在标题下；该行的其余部分保持不变。",
+    partialConfirm: "移动",
+    partialCancel: "取消",
+    settingsHeading: "将所选内容移动到笔记标题下",
+    toggleHotkey: "追加/前置切换快捷键",
+    toggleHotkeyDescription: "在标题列表打开时切换追加和前置，例如 Alt+A 或 Mod+Shift+P（Mod 为 Ctrl，macOS 上为 Cmd）。列表会记住你上次的选择。",
+    toggleHotkeyInvalid: "请使用修饰键加一个按键，例如 Alt+A。",
+    cursorAfterMove: "移动后的光标位置",
+    cursorAfterMoveDescription: "文本移动后光标所在的位置。",
+    cursorOptions: { stay: "保持原位", follow: "跟随移动的文本" }
   },
   rules: {
     list: { name: "列表层级", description: "在列表中依次扩选当前行、当前项及其子项、各级父项及其子项，最后是整个列表。" },

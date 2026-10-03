@@ -633,6 +633,25 @@ export function offsetToPosition(text: string, offset: number): TextPosition {
   return { line, ch: safeOffset - lines[line].start };
 }
 
+export interface HeadingLine {
+  /** Zero-based line index. */
+  line: number;
+  level: number;
+  /** Heading text without the leading `#`s. */
+  text: string;
+}
+
+/** Every heading in the note, in order, ignoring `#` lines inside code blocks. */
+export function listHeadings(text: string): HeadingLine[] {
+  const doc = parseDocument(text);
+  const headings: HeadingLine[] = [];
+  doc.headingLevels.forEach((level, line) => {
+    if (level === null) return;
+    headings.push({ line, level, text: doc.lines[line].text.replace(HEADING, "").replace(/\s+#+\s*$/u, "").trim() });
+  });
+  return headings;
+}
+
 export function getDefaultSelectionRules(): SelectionRules {
   return { ...DEFAULT_RULES };
 }

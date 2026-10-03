@@ -3,6 +3,7 @@
 An Obsidian plugin for working with the structure of a note from the keyboard and mouse:
 
 - **Expand and shrink the selection** one structural step at a time: word, sentence, paragraph, bullet, bullet with its children, whole list, heading section, parent sections, whole note.
+- **Move selection to note heading:** pick a heading in the current note from a quick-switcher-style list and the selected text moves under it.
 - **Drag and drop list items** by their bullets, moving each item with its children.
 - **Vertical indentation lines** beside nested bullets. Click a line to fold or unfold that branch.
 - **Related core commands in one place.** Move line, indent/unindent and fold commands get V2 entries, so filtering the command palette by "Quick Expand Selection V2" shows everything together.
@@ -18,6 +19,7 @@ V2 is a fork of [Quick Expand Selection](https://github.com/mushan-bit/quick-exp
   - [What counts as what](#what-counts-as-what)
   - [Shrinking](#shrinking)
   - [Worked example](#worked-example)
+- [Move selection to note heading](#move-selection-to-note-heading)
 - [Lists: drag and drop and indentation lines](#lists-drag-and-drop-and-indentation-lines)
 - [Core commands](#core-commands)
 - [Settings reference](#settings-reference)
@@ -111,6 +113,47 @@ With the cursor in `Outline`, repeated presses select:
 
 With the cursor in `review`: `review` → `Then review it!` → the paragraph → the `## Tasks` section → the whole note.
 
+## Move selection to note heading
+
+Moves the selected text under a heading **in the same note**.
+
+Run it from the command palette, or right-click selected text and choose **Move selection to note heading**. It has no default hotkey; assign one under **Settings → Hotkeys**.
+
+### The heading list
+
+A window like the quick switcher lists every heading in the note, in the order they appear. Each heading shows its level as `#`, `##`, `###` and so on, in grey to its left.
+
+| Key | Action |
+|---|---|
+| Typing | Filters the list (fuzzy matching, like the quick switcher). The list stays in note order. |
+| ↑ / ↓ | Move through the list |
+| Tab | Autocomplete: fill the box with the highlighted heading |
+| Enter | Move the text under the highlighted heading |
+| Alt+A (configurable) | Switch between Append and Prepend |
+| Esc | Cancel |
+
+- Long headings are cut off with "…"; hover to see the full heading.
+- Headings inside code blocks are not listed. Nor are headings inside the selection itself, since text can't move into itself.
+
+### Append and Prepend
+
+Below the search box, a toggle chooses where the text goes. Its hotkey is shown in grey beside it. Click either side, or press the hotkey.
+
+- **Prepend:** directly below the heading line, above the content already there.
+- **Append:** after the heading's own text, before its first subheading. Blank lines before the subheading stay where they are. If the heading has no text of its own, the text goes directly below the heading.
+
+The toggle remembers your last choice, starting with Append.
+
+### What moves
+
+- **Nothing selected:** nothing moves; a notice asks you to select some text.
+- **Whole lines** (the selection starts at a line start and ends at a line end): those lines move as they are, including list markers and indentation.
+- **Part of a line:** a pop-up asks you to confirm first. Only the selected text moves, onto its own line(s) under the heading; the rest of the line stays.
+
+Afterwards the cursor stays where the text was removed, or, if you choose **Follow the moved text** in the settings, the moved text is selected at its new place.
+
+The move is a single edit, so one undo puts everything back. If the note changes while the heading list is open (for example a sync), nothing moves and a notice says so.
+
 ## Lists: drag and drop and indentation lines
 
 These features come from Outliner and behave as they do there.
@@ -158,6 +201,13 @@ Each V2 command simply runs the core command, so nothing is reimplemented. Their
 - Turning the setting off removes the V2 commands straight away.
 
 ## Settings reference
+
+### Move selection to note heading
+
+| Setting | Default | Effect |
+|---|---|---|
+| Append/Prepend toggle hotkey | Alt+A | Switches the toggle while the heading list is open. Write modifiers plus one key, e.g. `Alt+A` or `Mod+Shift+P` (Mod is Ctrl, or Cmd on macOS). Letters match by key position, so Option+A works on macOS. |
+| Cursor after moving | Stay where it was | Or **Follow the moved text**: select the text at its new place. |
 
 ### Core commands
 
@@ -209,7 +259,7 @@ Finer steps between the word and the structural levels, all **off** by default. 
 - Bracket and Markdown-marker pairs are only looked for within the current line or paragraph, and `**bold**` is matched as a pair of `**` runs. `snake_case` underscores no longer count as italics.
 - Headings inside code blocks are ignored.
 - Default hotkeys (Ctrl/Cmd+A and Ctrl/Cmd+Shift+A).
-- Adds drag and drop, indentation lines and the core-command entries.
+- Adds Move selection to note heading, drag and drop, indentation lines and the core-command entries.
 
 ### From Outliner 4.10.2
 
@@ -244,10 +294,13 @@ Layout:
 | `src/main.ts` | Plugin entry: commands, settings loading/migration, feature wiring |
 | `src/settings.ts` | Settings tab (`getSettingDefinitions`, with a `display()` fallback for older Obsidian) |
 | `src/coreCommands.ts` | The wrapped core commands |
+| `src/moveToHeading.ts` | Planning a move under a heading (pure functions) |
+| `src/moveToHeadingModal.ts` | The heading list with the Append/Prepend toggle, and the partial-line confirmation |
+| `src/hotkey.ts` | Parsing, matching and displaying the toggle hotkey setting |
 | `src/i18n-core.ts`, `src/i18n.ts` | English and Simplified Chinese strings |
 | `src/outliner/` | Code adapted from Outliner: list parser and model, editor wrapper, drag and drop, vertical lines |
 | `styles.css` | Styles for the lines and drag and drop |
-| `tests/` | `node:test` tests for the expansion logic and locales |
+| `tests/` | `node:test` tests for expansion, moving under headings, hotkeys and locales |
 
 **Type-checking:** V2's own code is checked with `strict`. The code in `src/outliner/` is checked with Outliner's own, looser settings (`tsconfig.outliner.json`), so it can stay close to upstream and later Outliner fixes are easy to merge. The only change from Outliner's code, apart from import paths and settings wiring, is that support for the Zoom plugin has been removed (from `editor.ts`, `VerticalLines.ts` and `Settings.ts`). `scripts/typecheck.mjs` runs both checks.
 

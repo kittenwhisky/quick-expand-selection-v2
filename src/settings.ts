@@ -3,6 +3,8 @@ import type QuickExpandSelectionPlugin from "./main";
 import { DEFAULT_SENTENCE_MARKERS, getDefaultSelectionRules, type SelectionRules } from "./selection";
 import { getLocaleStrings } from "./i18n";
 import { WRAPPED_CORE_COMMANDS, coreCommandName } from "./coreCommands";
+import { parseHotkey } from "./hotkey";
+import { DEFAULT_INSERT_TOGGLE_HOTKEY, type CursorAfterMove } from "./moveToHeading";
 
 const STRUCTURE_RULES: Array<keyof SelectionRules> = ["list", "heading", "sentence", "code", "latex"];
 const EXTRA_STEP_RULES: Array<keyof SelectionRules> = ["whitespace", "punctuation", "pairs", "token", "line"];
@@ -30,7 +32,30 @@ export class QuickExpandSelectionSettingTab extends PluginSettingTab {
     });
     const list = strings.lists;
     const core = strings.coreCommands;
+    const move = strings.move;
     return [
+      {
+        type: "group",
+        heading: move.settingsHeading,
+        items: [
+          {
+            name: move.toggleHotkey,
+            desc: move.toggleHotkeyDescription,
+            control: {
+              type: "text" as const,
+              key: "insertToggleHotkey",
+              defaultValue: DEFAULT_INSERT_TOGGLE_HOTKEY,
+              placeholder: DEFAULT_INSERT_TOGGLE_HOTKEY,
+              validate: (value: string) => (parseHotkey(value) ? undefined : move.toggleHotkeyInvalid)
+            }
+          },
+          {
+            name: move.cursorAfterMove,
+            desc: move.cursorAfterMoveDescription,
+            control: { type: "dropdown" as const, key: "cursorAfterMove", defaultValue: "stay", options: move.cursorOptions }
+          }
+        ]
+      },
       {
         type: "group",
         heading: core.heading,
@@ -114,6 +139,8 @@ export class QuickExpandSelectionSettingTab extends PluginSettingTab {
 
   override getControlValue(key: string): unknown {
     if (key === "wrapCoreCommands") return this.plugin.settings.wrapCoreCommands;
+    if (key === "insertToggleHotkey") return this.plugin.settings.insertToggleHotkey;
+    if (key === "cursorAfterMove") return this.plugin.settings.cursorAfterMove;
     if (this.isListKey(key)) return this.plugin.settings[key];
     if (key === SENTENCE_MARKERS_KEY) return this.plugin.settings.sentenceMarkers;
     const rule = this.getRuleKey(key);
@@ -121,6 +148,18 @@ export class QuickExpandSelectionSettingTab extends PluginSettingTab {
   }
 
   override async setControlValue(key: string, value: unknown): Promise<void> {
+    if (key === "insertToggleHotkey") {
+      if (typeof value !== "string" || !parseHotkey(value)) return;
+      this.plugin.settings.insertToggleHotkey = value;
+      await this.plugin.saveSettings();
+      return;
+    }
+    if (key === "cursorAfterMove") {
+      if (value !== "stay" && value !== "follow") return;
+      this.plugin.settings.cursorAfterMove = value;
+      await this.plugin.saveSettings();
+      return;
+    }
     if (key === "verticalLinesAction") {
       if (typeof value !== "string" || !(value in getLocaleStrings().lists.verticalLinesActions)) return;
       this.plugin.settings.verticalLinesAction = value as QuickExpandSelectionPlugin["settings"]["verticalLinesAction"];
@@ -152,6 +191,34 @@ export class QuickExpandSelectionSettingTab extends PluginSettingTab {
     containerEl.empty();
     const list = strings.lists;
     const core = strings.coreCommands;
+    const move = strings.move;
+
+    new Setting(containerEl).setName(move.settingsHeading).setHeading();
+    new Setting(containerEl)
+      .setName(move.toggleHotkey)
+      .setDesc(move.toggleHotkeyDescription)
+      .addText((text) => {
+        text
+          .setPlaceholder(DEFAULT_INSERT_TOGGLE_HOTKEY)
+          .setValue(this.plugin.settings.insertToggleHotkey)
+          .onChange(async (value) => {
+            if (!parseHotkey(value)) return;
+            this.plugin.settings.insertToggleHotkey = value;
+            await this.plugin.saveSettings();
+          });
+      });
+    new Setting(containerEl)
+      .setName(move.cursorAfterMove)
+      .setDesc(move.cursorAfterMoveDescription)
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOptions(move.cursorOptions)
+          .setValue(this.plugin.settings.cursorAfterMove)
+          .onChange(async (value) => {
+            this.plugin.settings.cursorAfterMove = value as CursorAfterMove;
+            await this.plugin.saveSettings();
+          });
+      });
 
     new Setting(containerEl).setName(core.heading).setHeading();
     new Setting(containerEl)

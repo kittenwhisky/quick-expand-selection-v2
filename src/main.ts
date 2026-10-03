@@ -1,4 +1,14 @@
 import { Editor, MarkdownView, Notice, Plugin } from "obsidian";
+import { parseHotkey } from "./hotkey";
+import {
+  DEFAULT_INSERT_TOGGLE_HOTKEY,
+  isWholeLineSelection,
+  movableTargets,
+  planMove,
+  type CursorAfterMove,
+  type InsertPosition
+} from "./moveToHeading";
+import { HeadingSwitcherModal, confirmPartialMove } from "./moveToHeadingModal";
 import {
   DEFAULT_SENTENCE_MARKERS,
   expandSelection,
@@ -32,7 +42,12 @@ export interface QuickExpandSelectionSettings {
   verticalLines: boolean;
   verticalLinesAction: VerticalLinesAction;
   wrapCoreCommands: boolean;
+  /** The heading switcher's Append/Prepend toggle, remembered between uses. */
+  insertPosition: InsertPosition;
+  insertToggleHotkey: string;
+  cursorAfterMove: CursorAfterMove;
 }
+
 
 // A value no longer offered (Outliner's "zoom-in") falls back to the default when loaded.
 const VERTICAL_LINES_ACTIONS: VerticalLinesAction[] = ["none", "toggle-folding"];
@@ -44,7 +59,10 @@ const DEFAULT_SETTINGS: QuickExpandSelectionSettings = {
   dragAndDrop: true,
   verticalLines: true,
   verticalLinesAction: "toggle-folding",
-  wrapCoreCommands: true
+  wrapCoreCommands: true,
+  insertPosition: "append",
+  insertToggleHotkey: DEFAULT_INSERT_TOGGLE_HOTKEY,
+  cursorAfterMove: "stay"
 };
 
 // Rules whose meaning changed in V2 (they became opt-in fine-grained steps), so values saved by
@@ -92,6 +110,20 @@ export default class QuickExpandSelectionPlugin extends Plugin {
       editorCallback: (editor) => this.shrink(editor)
     });
 
+    this.addCommand({
+      id: "move-selection-to-note-heading",
+      name: strings.commands.moveToHeading,
+      icon: "heading",
+      editorCallback: (editor) => void this.moveSelectionToHeading(editor)
+    });
+    this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor) => {
+      if (!editor.somethingSelected()) return;
+      menu.addItem((item) => item
+        .setTitle(strings.commands.moveToHeading)
+        .setIcon("heading")
+        .onClick(() => void this.moveSelectionToHeading(editor)));
+    }));
+
     this.applyCoreCommandWrappers();
 
     const obsidianSettings = new ObsidianSettings(this.app);
@@ -128,7 +160,12 @@ export default class QuickExpandSelectionPlugin extends Plugin {
       verticalLinesAction: VERTICAL_LINES_ACTIONS.includes(saved?.verticalLinesAction as VerticalLinesAction)
         ? saved?.verticalLinesAction as VerticalLinesAction
         : DEFAULT_SETTINGS.verticalLinesAction,
-      wrapCoreCommands: typeof saved?.wrapCoreCommands === "boolean" ? saved.wrapCoreCommands : DEFAULT_SETTINGS.wrapCoreCommands
+      wrapCoreCommands: typeof saved?.wrapCoreCommands === "boolean" ? saved.wrapCoreCommands : DEFAULT_SETTINGS.wrapCoreCommands,
+      insertPosition: saved?.insertPosition === "prepend" ? "prepend" : "append",
+      insertToggleHotkey: typeof saved?.insertToggleHotkey === "string" && parseHotkey(saved.insertToggleHotkey)
+        ? saved.insertToggleHotkey
+        : DEFAULT_INSERT_TOGGLE_HOTKEY,
+      cursorAfterMove: saved?.cursorAfterMove === "follow" ? "follow" : "stay"
     };
   }
 
@@ -143,6 +180,56 @@ export default class QuickExpandSelectionPlugin extends Plugin {
     if (this.settings.wrapCoreCommands) registerCoreCommandWrappers(this);
     else removeCoreCommandWrappers(this);
     this.coreCommandsWrapped = this.settings.wrapCoreCommands;
+  }
+
+  private async moveSelectionToHeading(editor: Editor): Promise<void> {
+    const strings = getLocaleStrings().move;
+    const text = editor.getValue();
+    const range = getSelectionRange(this.getSelectionState(editor, text));
+    if (range.from === range.to) {
+      new Notice(strings.nothingSelected);
+      return;
+    }
+    const headings = movableTargets(text, range);
+    if (headings.length === 0) {
+      new Notice(strings.noHeadings);
+      return;
+    }
+    if (!isWholeLineSelection(text, range) && !(await confirmPartialMove(this.app, strings))) return;
+
+    new HeadingSwitcherModal(this.app, {
+      headings,
+      position: this.settings.insertPosition,
+      toggleHotkey: parseHotkey(this.settings.insertToggleHotkey),
+      strings,
+      onPositionChange: (position) => {
+        this.settings.insertPosition = position;
+        void this.saveSettings();
+      },
+      onChoose: (heading, position) => {
+        if (editor.getValue() !== text) {
+          new Notice(strings.noteChanged);
+          return;
+        }
+        const plan = planMove(text, range, heading.line, position);
+        if (!plan) return;
+        editor.transaction({
+          changes: plan.changes.map((change) => ({
+            from: editor.offsetToPos(change.from),
+            to: editor.offsetToPos(change.to),
+            text: change.insert
+          }))
+        });
+        if (this.settings.cursorAfterMove === "follow") {
+          const from = editor.offsetToPos(plan.moved.from);
+          const to = editor.offsetToPos(plan.moved.to);
+          editor.setSelection(from, to);
+          editor.scrollIntoView({ from, to }, true);
+        } else {
+          editor.setCursor(editor.offsetToPos(plan.removedAt));
+        }
+      }
+    }).open();
   }
 
   clearSelectionHistory(): void {

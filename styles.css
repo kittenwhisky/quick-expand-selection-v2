@@ -86,3 +86,62 @@ body.qes-outliner-dnd:not(.qes-outliner-dragging)
 html body.qes-outliner-dnd.qes-outliner-dragging {
   cursor: grabbing !important;
 }
+
+/* Move selection to note heading */
+.qes-heading-suggestion {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+  min-width: 0;
+}
+
+.qes-heading-level {
+  flex: none;
+  color: var(--text-faint);
+  font-family: var(--font-monospace);
+}
+
+.qes-heading-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qes-move-position {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: var(--size-4-2) var(--size-4-3);
+  border-bottom: 1px solid var(--background-modifier-border);
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
+.qes-move-position-toggle {
+  display: flex;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  overflow: hidden;
+}
+
+.qes-move-position-toggle button {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  height: auto;
+  padding: var(--size-2-1) var(--size-4-2);
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
+.qes-move-position-toggle button.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.qes-move-position-hotkey {
+  color: var(--text-faint);
+}

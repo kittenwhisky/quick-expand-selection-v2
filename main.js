@@ -5,6 +5,76 @@ var language = require('@codemirror/language');
 var state = require('@codemirror/state');
 var view = require('@codemirror/view');
 
+const MODIFIER_ALIASES = {
+    mod: "mod",
+    ctrl: "ctrl",
+    control: "ctrl",
+    meta: "meta",
+    cmd: "meta",
+    command: "meta",
+    win: "meta",
+    alt: "alt",
+    option: "alt",
+    opt: "alt",
+    shift: "shift"
+};
+/** Parses `Alt+A`-style text; returns null unless it is modifiers plus exactly one key. */
+function parseHotkey(text) {
+    const parts = text.split("+").map((part) => part.trim()).filter((part) => part.length > 0);
+    if (parts.length === 0)
+        return null;
+    const hotkey = { mod: false, ctrl: false, meta: false, alt: false, shift: false, key: "" };
+    for (const part of parts) {
+        const modifier = MODIFIER_ALIASES[part.toLowerCase()];
+        if (modifier) {
+            hotkey[modifier] = true;
+        }
+        else if (hotkey.key) {
+            return null;
+        }
+        else {
+            hotkey.key = part.toLowerCase();
+        }
+    }
+    return hotkey.key ? hotkey : null;
+}
+/**
+ * Letters and digits are matched by physical key (`KeyA`, `Digit1`), because with Alt/Option held
+ * macOS reports a different character (Option+A gives `å`).
+ */
+function matchesHotkey(hotkey, event, isMac) {
+    const wantCtrl = hotkey.ctrl || (hotkey.mod && !isMac);
+    const wantMeta = hotkey.meta || (hotkey.mod && isMac);
+    if (event.ctrlKey !== wantCtrl || event.metaKey !== wantMeta || event.altKey !== hotkey.alt || event.shiftKey !== hotkey.shift) {
+        return false;
+    }
+    if (/^[a-z]$/u.test(hotkey.key))
+        return event.code === `Key${hotkey.key.toUpperCase()}`;
+    if (/^[0-9]$/u.test(hotkey.key))
+        return event.code === `Digit${hotkey.key}`;
+    return event.key.toLowerCase() === hotkey.key;
+}
+/** How the hotkey is shown to the user, e.g. `Alt+A` on Windows or `⌥A` on macOS. */
+function formatHotkey(hotkey, isMac) {
+    const key = hotkey.key.length === 1 ? hotkey.key.toUpperCase() : hotkey.key.charAt(0).toUpperCase() + hotkey.key.slice(1);
+    if (isMac) {
+        return [
+            hotkey.ctrl ? "⌃" : "",
+            hotkey.alt ? "⌥" : "",
+            hotkey.shift ? "⇧" : "",
+            hotkey.meta || hotkey.mod ? "⌘" : "",
+            key
+        ].join("");
+    }
+    return [
+        hotkey.ctrl || hotkey.mod ? "Ctrl" : "",
+        hotkey.meta ? "Win" : "",
+        hotkey.alt ? "Alt" : "",
+        hotkey.shift ? "Shift" : "",
+        key
+    ].filter((part) => part.length > 0).join("+");
+}
+
 // Structural steps are on by default; the fine-grained in-line steps are opt-in.
 const DEFAULT_RULES = {
     list: true,
@@ -60,7 +130,7 @@ function lineNumberAt(text, offset) {
     }
     return line;
 }
-function getLines(text) {
+function getLines$1(text) {
     const lines = [];
     let start = 0;
     while (start <= text.length) {
@@ -107,7 +177,7 @@ function normalizeRange(range, textLength) {
     };
 }
 function parseDocument(text) {
-    const lines = getLines(text);
+    const lines = getLines$1(text);
     const fences = [];
     const inFence = lines.map(() => false);
     let open = null;
@@ -465,7 +535,7 @@ function inlineSteps(text, range, scope, rules) {
 function parseLatexRanges(text) {
     const ranges = [];
     const stack = [];
-    for (const line of getLines(text)) {
+    for (const line of getLines$1(text)) {
         const startMatch = line.text.match(LATEX_BLOCK_START);
         if (startMatch) {
             stack.push({ start: line.start, environment: startMatch[1] ?? null });
@@ -576,25 +646,311 @@ function shrinkSelection(history, current) {
     return { anchor: current.head, head: current.head };
 }
 function positionToOffset(text, position) {
-    const lines = getLines(text);
+    const lines = getLines$1(text);
     const line = clamp(position.line, 0, Math.max(0, lines.length - 1));
     const target = lines[line];
     return target.start + clamp(position.ch, 0, target.end - target.start);
 }
 function offsetToPosition(text, offset) {
     const safeOffset = clamp(offset, 0, text.length);
-    const lines = getLines(text);
+    const lines = getLines$1(text);
     const line = lineNumberAt(text, safeOffset);
     return { line, ch: safeOffset - lines[line].start };
+}
+/** Every heading in the note, in order, ignoring `#` lines inside code blocks. */
+function listHeadings(text) {
+    const doc = parseDocument(text);
+    const headings = [];
+    doc.headingLevels.forEach((level, line) => {
+        if (level === null)
+            return;
+        headings.push({ line, level, text: doc.lines[line].text.replace(HEADING, "").replace(/\s+#+\s*$/u, "").trim() });
+    });
+    return headings;
 }
 function getDefaultSelectionRules() {
     return { ...DEFAULT_RULES };
 }
 
+const DEFAULT_INSERT_TOGGLE_HOTKEY = "Alt+A";
+function getLines(text) {
+    const lines = [];
+    let start = 0;
+    for (;;) {
+        const end = text.indexOf("\n", start);
+        lines.push({ start, end: end === -1 ? text.length : end, text: text.slice(start, end === -1 ? text.length : end) });
+        if (end === -1)
+            return lines;
+        start = end + 1;
+    }
+}
+function lineIndexAt(lines, offset) {
+    let index = 0;
+    while (index + 1 < lines.length && lines[index + 1].start <= offset)
+        index += 1;
+    return index;
+}
+/**
+ * True when the selection covers whole lines: it starts at a line start and ends at a line end
+ * (or at the start of the following line).
+ */
+function isWholeLineSelection(text, range) {
+    if (range.from === range.to)
+        return false;
+    const lines = getLines(text);
+    const first = lines[lineIndexAt(lines, range.from)];
+    if (range.from !== first.start)
+        return false;
+    const last = lines[lineIndexAt(lines, range.to)];
+    return range.to === last.end || range.to === last.start;
+}
+/** Headings the selection can be moved under: every heading not inside the selection itself. */
+function movableTargets(text, range) {
+    const lines = getLines(text);
+    return listHeadings(text).filter(({ line }) => {
+        const { start, end } = lines[line];
+        return end < range.from || start >= range.to;
+    });
+}
+/**
+ * Plans moving the selection under the heading on line `headingLine`.
+ * - `prepend`: directly below the heading line, above its existing content.
+ * - `append`: after the last non-blank line of the heading's own text (before its first
+ *   subheading); directly below the heading line if it has no text of its own.
+ * Whole-line selections move as lines. A partial selection moves exactly the selected text, which
+ * is placed on its own line.
+ */
+function planMove(text, range, headingLine, position) {
+    if (range.from === range.to)
+        return null;
+    const lines = getLines(text);
+    const headings = listHeadings(text);
+    const heading = headings.find((candidate) => candidate.line === headingLine);
+    if (!heading)
+        return null;
+    // What is removed, and the text that moves.
+    let removeFrom;
+    let removeTo;
+    let moved;
+    let removedLines = null;
+    if (isWholeLineSelection(text, range)) {
+        const first = lineIndexAt(lines, range.from);
+        let last = lineIndexAt(lines, range.to);
+        if (range.to === lines[last].start && last > first)
+            last -= 1;
+        if (headingLine >= first && headingLine <= last)
+            return null;
+        removedLines = { first, last };
+        moved = lines.slice(first, last + 1).map((line) => line.text).join("\n");
+        if (last + 1 < lines.length) {
+            removeFrom = lines[first].start;
+            removeTo = lines[last + 1].start;
+        }
+        else {
+            removeFrom = first > 0 ? lines[first - 1].end : 0;
+            removeTo = lines[last].end;
+        }
+    }
+    else {
+        removeFrom = range.from;
+        removeTo = range.to;
+        // The text gets its own line(s), so surrounding line breaks are not carried along.
+        moved = text.slice(range.from, range.to).replace(/^\n+|\n+$/gu, "");
+    }
+    // Where it goes: the end of the heading line, or of the last line of the heading's own text.
+    let anchorLine = headingLine;
+    if (position === "append") {
+        const nextHeading = headings.find((candidate) => candidate.line > headingLine);
+        const sectionEnd = nextHeading ? nextHeading.line : lines.length;
+        for (let line = headingLine + 1; line < sectionEnd; line += 1) {
+            if (removedLines && line >= removedLines.first && line <= removedLines.last)
+                continue;
+            if (lines[line].text.trim() !== "")
+                anchorLine = line;
+        }
+    }
+    let insertAt = lines[anchorLine].end;
+    // A partial selection can run through the anchor line's end; insert where the text is removed.
+    if (insertAt > removeFrom && insertAt < removeTo)
+        insertAt = removeFrom;
+    const insert = `\n${moved}`;
+    const removed = removeTo - removeFrom;
+    const insertStart = insertAt <= removeFrom ? insertAt : insertAt - removed;
+    const removedAt = insertAt <= removeFrom ? removeFrom + insert.length : removeFrom;
+    return {
+        changes: [
+            { from: removeFrom, to: removeTo, insert: "" },
+            { from: insertAt, to: insertAt, insert }
+        ],
+        removedAt,
+        moved: { from: insertStart + 1, to: insertStart + 1 + moved.length }
+    };
+}
+
+/** Quick-switcher-style list of the note's headings, with an Append/Prepend toggle. */
+class HeadingSwitcherModal extends obsidian.SuggestModal {
+    constructor(app, options) {
+        super(app);
+        this.options = options;
+        this.toggleButtons = new Map();
+        this.onKeyDown = (event) => {
+            const { toggleHotkey } = this.options;
+            if (!toggleHotkey || !matchesHotkey(toggleHotkey, event, obsidian.Platform.isMacOS))
+                return;
+            event.preventDefault();
+            event.stopPropagation();
+            this.setPosition(this.position === "append" ? "prepend" : "append");
+        };
+        this.position = options.position;
+        const { strings } = options;
+        this.setPlaceholder(strings.placeholder);
+        this.emptyStateText = strings.noMatch;
+        this.limit = 1000;
+        this.setInstructions([
+            { command: "↑↓", purpose: strings.navigate },
+            { command: "Tab", purpose: strings.autocomplete },
+            { command: "↵", purpose: strings.move },
+            { command: "esc", purpose: strings.dismiss }
+        ]);
+        this.scope.register([], "Tab", () => {
+            this.autocomplete();
+            return false;
+        });
+        this.modalEl.addClass("qes-heading-switcher");
+    }
+    onOpen() {
+        void super.onOpen();
+        this.renderToggle();
+        this.modalEl.addEventListener("keydown", this.onKeyDown, true);
+    }
+    onClose() {
+        this.modalEl.removeEventListener("keydown", this.onKeyDown, true);
+        super.onClose();
+    }
+    /** Headings in note order; typing filters them (fuzzy, like the quick switcher) without re-sorting. */
+    getSuggestions(query) {
+        const trimmed = query.trim();
+        if (!trimmed)
+            return this.options.headings.map((heading) => ({ heading, match: null }));
+        const search = obsidian.prepareFuzzySearch(trimmed);
+        const suggestions = [];
+        for (const heading of this.options.headings) {
+            const match = search(heading.text);
+            if (match)
+                suggestions.push({ heading, match });
+        }
+        return suggestions;
+    }
+    renderSuggestion({ heading, match }, el) {
+        el.addClass("qes-heading-suggestion");
+        el.createSpan({ cls: "qes-heading-level", text: "#".repeat(heading.level) });
+        // Long headings are cut off with "…" by CSS; hovering shows the full text.
+        const textEl = el.createSpan({ cls: "qes-heading-text", attr: { title: heading.text } });
+        obsidian.renderMatches(textEl, heading.text, match?.matches ?? null);
+    }
+    onChooseSuggestion({ heading }) {
+        this.options.onChoose(heading, this.position);
+    }
+    renderToggle() {
+        const { strings, toggleHotkey } = this.options;
+        const bar = createDiv({ cls: "qes-move-position" });
+        this.inputEl.parentElement?.insertAdjacentElement("afterend", bar);
+        bar.createSpan({ cls: "qes-move-position-label", text: strings.insert });
+        const group = bar.createDiv({ cls: "qes-move-position-toggle" });
+        for (const position of ["prepend", "append"]) {
+            const button = group.createEl("button", { text: position === "append" ? strings.append : strings.prepend });
+            button.addEventListener("click", () => {
+                this.setPosition(position);
+                this.inputEl.focus();
+            });
+            this.toggleButtons.set(position, button);
+        }
+        if (toggleHotkey) {
+            bar.createSpan({ cls: "qes-move-position-hotkey", text: formatHotkey(toggleHotkey, obsidian.Platform.isMacOS) });
+        }
+        this.updateToggle();
+    }
+    setPosition(position) {
+        if (position === this.position)
+            return;
+        this.position = position;
+        this.updateToggle();
+        this.options.onPositionChange(position);
+    }
+    updateToggle() {
+        for (const [position, button] of this.toggleButtons) {
+            const active = position === this.position;
+            button.toggleClass("is-active", active);
+            button.setAttribute("aria-pressed", String(active));
+        }
+    }
+    /** Tab: fill the input with the highlighted heading, like the quick switcher. */
+    autocomplete() {
+        // `chooser` is SuggestModal's internal list; not public API, so read it defensively.
+        const chooser = this.chooser;
+        const values = chooser?.values ?? [];
+        const selected = values[chooser?.selectedItem ?? 0] ?? values[0];
+        if (!selected)
+            return;
+        this.inputEl.value = selected.heading.text;
+        this.inputEl.dispatchEvent(new Event("input"));
+    }
+}
+/** Asks before moving part of a line; resolves true to move, false to cancel. */
+function confirmPartialMove(app, strings) {
+    return new Promise((resolve) => {
+        let answered = false;
+        const modal = new obsidian.Modal(app);
+        modal.setTitle(strings.partialTitle);
+        modal.contentEl.createEl("p", { text: strings.partialMessage });
+        const buttons = modal.contentEl.createDiv({ cls: "modal-button-container" });
+        const answer = (value) => {
+            answered = true;
+            resolve(value);
+            modal.close();
+        };
+        const moveButton = buttons.createEl("button", { cls: "mod-cta", text: strings.partialConfirm });
+        moveButton.addEventListener("click", () => answer(true));
+        buttons.createEl("button", { text: strings.partialCancel }).addEventListener("click", () => answer(false));
+        modal.onClose = () => {
+            if (!answered)
+                resolve(false);
+        };
+        modal.open();
+        moveButton.focus();
+    });
+}
+
 const en = {
     commands: {
         expandSelection: "Expand selection",
-        shrinkSelection: "Shrink selection"
+        shrinkSelection: "Shrink selection",
+        moveToHeading: "Move selection to note heading"
+    },
+    move: {
+        placeholder: "Move selection to note heading…",
+        noMatch: "No matching heading.",
+        navigate: "to navigate",
+        autocomplete: "to autocomplete",
+        move: "to move",
+        dismiss: "to dismiss",
+        insert: "Insert:",
+        append: "Append",
+        prepend: "Prepend",
+        nothingSelected: "Select the text to move first.",
+        noHeadings: "This note has no headings to move the selection under.",
+        noteChanged: "The note changed while choosing a heading, so nothing was moved.",
+        partialTitle: "Move part of a line?",
+        partialMessage: "The selection covers only part of a line. Only the selected text will move, onto its own line under the heading; the rest of the line stays where it is.",
+        partialConfirm: "Move",
+        partialCancel: "Cancel",
+        settingsHeading: "Move selection to note heading",
+        toggleHotkey: "Append/Prepend toggle hotkey",
+        toggleHotkeyDescription: "Switches between Append and Prepend while the heading list is open, e.g. Alt+A or Mod+Shift+P (Mod is Ctrl, or Cmd on macOS). The list remembers your last choice.",
+        toggleHotkeyInvalid: "Use modifiers plus one key, e.g. Alt+A.",
+        cursorAfterMove: "Cursor after moving",
+        cursorAfterMoveDescription: "Where the cursor goes once the text has moved.",
+        cursorOptions: { stay: "Stay where it was", follow: "Follow the moved text" }
     },
     rules: {
         list: { name: "List hierarchy", description: "In a list, expand through the bullet line, the bullet with its children, each parent bullet with its children, then the whole list." },
@@ -644,7 +1000,33 @@ const en = {
 const zhCn = {
     commands: {
         expandSelection: "扩选文本",
-        shrinkSelection: "缩选文本"
+        shrinkSelection: "缩选文本",
+        moveToHeading: "将所选内容移动到笔记标题下"
+    },
+    move: {
+        placeholder: "将所选内容移动到笔记标题下…",
+        noMatch: "没有匹配的标题。",
+        navigate: "导航",
+        autocomplete: "自动补全",
+        move: "移动",
+        dismiss: "关闭",
+        insert: "插入：",
+        append: "追加",
+        prepend: "前置",
+        nothingSelected: "请先选择要移动的文本。",
+        noHeadings: "此笔记中没有可移动到的标题。",
+        noteChanged: "选择标题期间笔记已更改，未移动任何内容。",
+        partialTitle: "移动行的一部分？",
+        partialMessage: "所选内容只覆盖了一行的一部分。只有所选文本会移动，并单独成行放在标题下；该行的其余部分保持不变。",
+        partialConfirm: "移动",
+        partialCancel: "取消",
+        settingsHeading: "将所选内容移动到笔记标题下",
+        toggleHotkey: "追加/前置切换快捷键",
+        toggleHotkeyDescription: "在标题列表打开时切换追加和前置，例如 Alt+A 或 Mod+Shift+P（Mod 为 Ctrl，macOS 上为 Cmd）。列表会记住你上次的选择。",
+        toggleHotkeyInvalid: "请使用修饰键加一个按键，例如 Alt+A。",
+        cursorAfterMove: "移动后的光标位置",
+        cursorAfterMoveDescription: "文本移动后光标所在的位置。",
+        cursorOptions: { stay: "保持原位", follow: "跟随移动的文本" }
     },
     rules: {
         list: { name: "列表层级", description: "在列表中依次扩选当前行、当前项及其子项、各级父项及其子项，最后是整个列表。" },
@@ -769,7 +1151,30 @@ class QuickExpandSelectionSettingTab extends obsidian.PluginSettingTab {
         });
         const list = strings.lists;
         const core = strings.coreCommands;
+        const move = strings.move;
         return [
+            {
+                type: "group",
+                heading: move.settingsHeading,
+                items: [
+                    {
+                        name: move.toggleHotkey,
+                        desc: move.toggleHotkeyDescription,
+                        control: {
+                            type: "text",
+                            key: "insertToggleHotkey",
+                            defaultValue: DEFAULT_INSERT_TOGGLE_HOTKEY,
+                            placeholder: DEFAULT_INSERT_TOGGLE_HOTKEY,
+                            validate: (value) => (parseHotkey(value) ? undefined : move.toggleHotkeyInvalid)
+                        }
+                    },
+                    {
+                        name: move.cursorAfterMove,
+                        desc: move.cursorAfterMoveDescription,
+                        control: { type: "dropdown", key: "cursorAfterMove", defaultValue: "stay", options: move.cursorOptions }
+                    }
+                ]
+            },
             {
                 type: "group",
                 heading: core.heading,
@@ -853,6 +1258,10 @@ class QuickExpandSelectionSettingTab extends obsidian.PluginSettingTab {
     getControlValue(key) {
         if (key === "wrapCoreCommands")
             return this.plugin.settings.wrapCoreCommands;
+        if (key === "insertToggleHotkey")
+            return this.plugin.settings.insertToggleHotkey;
+        if (key === "cursorAfterMove")
+            return this.plugin.settings.cursorAfterMove;
         if (this.isListKey(key))
             return this.plugin.settings[key];
         if (key === SENTENCE_MARKERS_KEY)
@@ -861,6 +1270,20 @@ class QuickExpandSelectionSettingTab extends obsidian.PluginSettingTab {
         return rule ? this.plugin.settings.rules[rule] : undefined;
     }
     async setControlValue(key, value) {
+        if (key === "insertToggleHotkey") {
+            if (typeof value !== "string" || !parseHotkey(value))
+                return;
+            this.plugin.settings.insertToggleHotkey = value;
+            await this.plugin.saveSettings();
+            return;
+        }
+        if (key === "cursorAfterMove") {
+            if (value !== "stay" && value !== "follow")
+                return;
+            this.plugin.settings.cursorAfterMove = value;
+            await this.plugin.saveSettings();
+            return;
+        }
         if (key === "verticalLinesAction") {
             if (typeof value !== "string" || !(value in getLocaleStrings().lists.verticalLinesActions))
                 return;
@@ -895,6 +1318,34 @@ class QuickExpandSelectionSettingTab extends obsidian.PluginSettingTab {
         containerEl.empty();
         const list = strings.lists;
         const core = strings.coreCommands;
+        const move = strings.move;
+        new obsidian.Setting(containerEl).setName(move.settingsHeading).setHeading();
+        new obsidian.Setting(containerEl)
+            .setName(move.toggleHotkey)
+            .setDesc(move.toggleHotkeyDescription)
+            .addText((text) => {
+            text
+                .setPlaceholder(DEFAULT_INSERT_TOGGLE_HOTKEY)
+                .setValue(this.plugin.settings.insertToggleHotkey)
+                .onChange(async (value) => {
+                if (!parseHotkey(value))
+                    return;
+                this.plugin.settings.insertToggleHotkey = value;
+                await this.plugin.saveSettings();
+            });
+        });
+        new obsidian.Setting(containerEl)
+            .setName(move.cursorAfterMove)
+            .setDesc(move.cursorAfterMoveDescription)
+            .addDropdown((dropdown) => {
+            dropdown
+                .addOptions(move.cursorOptions)
+                .setValue(this.plugin.settings.cursorAfterMove)
+                .onChange(async (value) => {
+                this.plugin.settings.cursorAfterMove = value;
+                await this.plugin.saveSettings();
+            });
+        });
         new obsidian.Setting(containerEl).setName(core.heading).setHeading();
         new obsidian.Setting(containerEl)
             .setName(core.wrap)
@@ -2598,7 +3049,10 @@ const DEFAULT_SETTINGS = {
     dragAndDrop: true,
     verticalLines: true,
     verticalLinesAction: "toggle-folding",
-    wrapCoreCommands: true
+    wrapCoreCommands: true,
+    insertPosition: "append",
+    insertToggleHotkey: DEFAULT_INSERT_TOGGLE_HOTKEY,
+    cursorAfterMove: "stay"
 };
 // Rules whose meaning changed in V2 (they became opt-in fine-grained steps), so values saved by
 // the original plugin are not carried over.
@@ -2638,6 +3092,20 @@ class QuickExpandSelectionPlugin extends obsidian.Plugin {
             hotkeys: [{ modifiers: ["Mod", "Shift"], key: "a" }],
             editorCallback: (editor) => this.shrink(editor)
         });
+        this.addCommand({
+            id: "move-selection-to-note-heading",
+            name: strings.commands.moveToHeading,
+            icon: "heading",
+            editorCallback: (editor) => void this.moveSelectionToHeading(editor)
+        });
+        this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor) => {
+            if (!editor.somethingSelected())
+                return;
+            menu.addItem((item) => item
+                .setTitle(strings.commands.moveToHeading)
+                .setIcon("heading")
+                .onClick(() => void this.moveSelectionToHeading(editor)));
+        }));
         this.applyCoreCommandWrappers();
         const obsidianSettings = new ObsidianSettings(this.app);
         const parser = new Parser();
@@ -2675,7 +3143,12 @@ class QuickExpandSelectionPlugin extends obsidian.Plugin {
             verticalLinesAction: VERTICAL_LINES_ACTIONS.includes(saved?.verticalLinesAction)
                 ? saved?.verticalLinesAction
                 : DEFAULT_SETTINGS.verticalLinesAction,
-            wrapCoreCommands: typeof saved?.wrapCoreCommands === "boolean" ? saved.wrapCoreCommands : DEFAULT_SETTINGS.wrapCoreCommands
+            wrapCoreCommands: typeof saved?.wrapCoreCommands === "boolean" ? saved.wrapCoreCommands : DEFAULT_SETTINGS.wrapCoreCommands,
+            insertPosition: saved?.insertPosition === "prepend" ? "prepend" : "append",
+            insertToggleHotkey: typeof saved?.insertToggleHotkey === "string" && parseHotkey(saved.insertToggleHotkey)
+                ? saved.insertToggleHotkey
+                : DEFAULT_INSERT_TOGGLE_HOTKEY,
+            cursorAfterMove: saved?.cursorAfterMove === "follow" ? "follow" : "stay"
         };
     }
     async saveSettings() {
@@ -2692,6 +3165,57 @@ class QuickExpandSelectionPlugin extends obsidian.Plugin {
         else
             removeCoreCommandWrappers(this);
         this.coreCommandsWrapped = this.settings.wrapCoreCommands;
+    }
+    async moveSelectionToHeading(editor) {
+        const strings = getLocaleStrings().move;
+        const text = editor.getValue();
+        const range = getSelectionRange(this.getSelectionState(editor, text));
+        if (range.from === range.to) {
+            new obsidian.Notice(strings.nothingSelected);
+            return;
+        }
+        const headings = movableTargets(text, range);
+        if (headings.length === 0) {
+            new obsidian.Notice(strings.noHeadings);
+            return;
+        }
+        if (!isWholeLineSelection(text, range) && !(await confirmPartialMove(this.app, strings)))
+            return;
+        new HeadingSwitcherModal(this.app, {
+            headings,
+            position: this.settings.insertPosition,
+            toggleHotkey: parseHotkey(this.settings.insertToggleHotkey),
+            strings,
+            onPositionChange: (position) => {
+                this.settings.insertPosition = position;
+                void this.saveSettings();
+            },
+            onChoose: (heading, position) => {
+                if (editor.getValue() !== text) {
+                    new obsidian.Notice(strings.noteChanged);
+                    return;
+                }
+                const plan = planMove(text, range, heading.line, position);
+                if (!plan)
+                    return;
+                editor.transaction({
+                    changes: plan.changes.map((change) => ({
+                        from: editor.offsetToPos(change.from),
+                        to: editor.offsetToPos(change.to),
+                        text: change.insert
+                    }))
+                });
+                if (this.settings.cursorAfterMove === "follow") {
+                    const from = editor.offsetToPos(plan.moved.from);
+                    const to = editor.offsetToPos(plan.moved.to);
+                    editor.setSelection(from, to);
+                    editor.scrollIntoView({ from, to }, true);
+                }
+                else {
+                    editor.setCursor(editor.offsetToPos(plan.removedAt));
+                }
+            }
+        }).open();
     }
     clearSelectionHistory() {
         const editor = this.getActiveEditor();
