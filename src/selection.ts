@@ -9,13 +9,16 @@ export interface TextRange {
 }
 
 export interface SelectionRules {
-  whitespace: boolean;
-  punctuation: boolean;
-  line: boolean;
   list: boolean;
+  heading: boolean;
+  sentence: boolean;
   code: boolean;
   latex: boolean;
-  heading: boolean;
+  whitespace: boolean;
+  punctuation: boolean;
+  pairs: boolean;
+  token: boolean;
+  line: boolean;
 }
 
 export interface SelectionState {
@@ -23,24 +26,34 @@ export interface SelectionState {
   head: number;
 }
 
+// Structural steps are on by default; the fine-grained in-line steps are opt-in.
 const DEFAULT_RULES: SelectionRules = {
-  whitespace: true,
-  punctuation: true,
-  line: true,
   list: true,
+  heading: true,
+  sentence: true,
   code: true,
   latex: true,
-  heading: true
+  whitespace: false,
+  punctuation: false,
+  pairs: false,
+  token: false,
+  line: false
 };
+
+export const DEFAULT_SENTENCE_MARKERS = ".!?。！？";
 
 const PUNCTUATION = /[\p{P}\p{S}]/u;
 const WHITESPACE = /\s/u;
 const WORD = /[\p{L}\p{M}\p{N}_]/u;
-const LIST_MARKER = /^(\s*)(?:(?:[-+*]|\d+[.)])\s+)/u;
+const LIST_MARKER = /^([ \t]*)(?:[-+*]|\d+[.)])(?:[ \t]+|$)/u;
 const FENCE_MARKER = /^\s{0,3}(`{3,}|~{3,})/u;
+const HEADING = /^\s{0,3}(#{1,6})(?:\s+|$)/u;
 const LATEX_BLOCK_START = /^\s*\\(?:begin\{([^}]+)\}|\[)/u;
 const LATEX_BLOCK_END = /^\s*\\(?:end\{([^}]+)\}|\])/u;
 const LATEX_INLINE_DELIMITERS = ["$$", "\\(", "\\[", "$", "\\begin{"];
+// Characters that may close a sentence after its terminal marker, e.g. `."` or `!)`.
+const SENTENCE_CLOSERS = new Set([")", "]", "\"", "'", "”", "’", "»", "」", "』", "）", "*", "_"]);
+const TAB_WIDTH = 4;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -68,16 +81,6 @@ function isAllowedBoundaryCharacter(character: string, rules: SelectionRules): b
   return false;
 }
 
-function lineStart(text: string, offset: number): number {
-  const start = text.lastIndexOf("\n", Math.max(0, offset - 1));
-  return start === -1 ? 0 : start + 1;
-}
-
-function lineEnd(text: string, offset: number): number {
-  const end = text.indexOf("\n", offset);
-  return end === -1 ? text.length : end;
-}
-
 function lineNumberAt(text: string, offset: number): number {
   let line = 0;
   for (let index = 0; index < offset; index += 1) {
@@ -86,8 +89,14 @@ function lineNumberAt(text: string, offset: number): number {
   return line;
 }
 
-function getLines(text: string): Array<{ start: number; end: number; text: string }> {
-  const lines: Array<{ start: number; end: number; text: string }> = [];
+interface Line {
+  start: number;
+  end: number;
+  text: string;
+}
+
+function getLines(text: string): Line[] {
+  const lines: Line[] = [];
   let start = 0;
 
   while (start <= text.length) {
@@ -101,6 +110,20 @@ function getLines(text: string): Array<{ start: number; end: number; text: strin
   return lines;
 }
 
+function isBlankLine(text: string): boolean {
+  return /^\s*$/u.test(text);
+}
+
+function indentWidth(lineText: string): number {
+  let width = 0;
+  for (const character of lineText) {
+    if (character === " ") width += 1;
+    else if (character === "\t") width += TAB_WIDTH - (width % TAB_WIDTH);
+    else break;
+  }
+  return width;
+}
+
 function trimOuterWhitespace(text: string, range: TextRange): TextRange {
   let from = range.from;
   let to = range.to;
@@ -109,52 +132,375 @@ function trimOuterWhitespace(text: string, range: TextRange): TextRange {
   return { from, to };
 }
 
-interface FenceContext {
-  range: TextRange;
+function rangeContains(outer: TextRange, inner: TextRange): boolean {
+  return outer.from <= inner.from && outer.to >= inner.to;
 }
 
-function parseFenceContexts(text: string): FenceContext[] {
-  const contexts: FenceContext[] = [];
-  let openStart: number | null = null;
-  let fenceCharacter = "";
-  let fenceLength = 0;
+function normalizeRange(range: TextRange, textLength: number): TextRange {
+  return {
+    from: clamp(Math.min(range.from, range.to), 0, textLength),
+    to: clamp(Math.max(range.from, range.to), 0, textLength)
+  };
+}
 
-  for (const line of getLines(text)) {
+/** Line-level facts about a note, computed once per expansion. */
+interface MarkdownDocument {
+  text: string;
+  lines: Line[];
+  /** Fenced code blocks as inclusive line-index spans. */
+  fences: Array<{ first: number; last: number }>;
+  inFence: boolean[];
+  headingLevels: Array<number | null>;
+}
+
+function parseDocument(text: string): MarkdownDocument {
+  const lines = getLines(text);
+  const fences: Array<{ first: number; last: number }> = [];
+  const inFence = lines.map(() => false);
+  let open: { first: number; character: string; length: number } | null = null;
+
+  lines.forEach((line, index) => {
     const match = line.text.match(FENCE_MARKER);
-    if (!match) continue;
+    if (open) {
+      inFence[index] = true;
+      if (match && match[1][0] === open.character && match[1].length >= open.length) {
+        fences.push({ first: open.first, last: index });
+        open = null;
+      }
+    } else if (match) {
+      inFence[index] = true;
+      open = { first: index, character: match[1][0], length: match[1].length };
+    }
+  });
+  if (open) fences.push({ first: (open as { first: number }).first, last: lines.length - 1 });
 
-    const marker = match[1];
-    if (openStart === null) {
-      openStart = line.start;
-      fenceCharacter = marker[0];
-      fenceLength = marker.length;
+  const headingLevels = lines.map((line, index) => {
+    if (inFence[index]) return null;
+    const match = line.text.match(HEADING);
+    return match ? match[1].length : null;
+  });
+
+  return { text, lines, fences, inFence, headingLevels };
+}
+
+function lineRange(doc: MarkdownDocument, first: number, last = first): TextRange {
+  return { from: doc.lines[first].start, to: doc.lines[last].end };
+}
+
+// ---------------------------------------------------------------------------
+// Headings
+
+function headingSection(doc: MarkdownDocument, index: number): TextRange {
+  const level = doc.headingLevels[index] ?? 0;
+  let last = index;
+  for (let next = index + 1; next < doc.lines.length; next += 1) {
+    const nextLevel = doc.headingLevels[next];
+    if (nextLevel !== null && nextLevel <= level) break;
+    last = next;
+  }
+  return lineRange(doc, index, last);
+}
+
+/** The section of the nearest heading at or above `index`, then each parent section outward. */
+function headingLadder(doc: MarkdownDocument, index: number): TextRange[] {
+  let heading = -1;
+  for (let lineIndex = index; lineIndex >= 0; lineIndex -= 1) {
+    if (doc.headingLevels[lineIndex] !== null) {
+      heading = lineIndex;
+      break;
+    }
+  }
+  if (heading === -1) return [];
+
+  const ranges = [headingSection(doc, heading)];
+  let level = doc.headingLevels[heading] ?? 0;
+  for (let lineIndex = heading - 1; lineIndex >= 0 && level > 1; lineIndex -= 1) {
+    const candidate = doc.headingLevels[lineIndex];
+    if (candidate !== null && candidate < level) {
+      ranges.push(headingSection(doc, lineIndex));
+      level = candidate;
+    }
+  }
+  return ranges;
+}
+
+// ---------------------------------------------------------------------------
+// Lists
+
+function isListLine(doc: MarkdownDocument, index: number): boolean {
+  return !doc.inFence[index] && LIST_MARKER.test(doc.lines[index].text);
+}
+
+/**
+ * The list item a line belongs to: the line itself when it is a bullet, otherwise the nearest
+ * shallower bullet above it (an indented continuation line, fenced block or nested paragraph).
+ */
+function owningListItem(doc: MarkdownDocument, index: number): number | null {
+  if (isListLine(doc, index)) return index;
+  if (isBlankLine(doc.lines[index].text) || doc.headingLevels[index] !== null) return null;
+  return shallowerListItemAbove(doc, index, indentWidth(doc.lines[index].text));
+}
+
+function shallowerListItemAbove(doc: MarkdownDocument, index: number, indent: number): number | null {
+  for (let lineIndex = index - 1; lineIndex >= 0; lineIndex -= 1) {
+    const text = doc.lines[lineIndex].text;
+    if (isBlankLine(text)) continue;
+    if (doc.headingLevels[lineIndex] !== null) return null;
+    if (indentWidth(text) >= indent) continue;
+    return isListLine(doc, lineIndex) ? lineIndex : null;
+  }
+  return null;
+}
+
+/** A bullet plus every following line indented deeper than it (children, continuations). */
+function listItemSubtree(doc: MarkdownDocument, index: number): TextRange {
+  const indent = indentWidth(doc.lines[index].text);
+  let last = index;
+  for (let next = index + 1; next < doc.lines.length; next += 1) {
+    const text = doc.lines[next].text;
+    if (isBlankLine(text)) continue;
+    if (doc.headingLevels[next] !== null || indentWidth(text) <= indent) break;
+    last = next;
+  }
+  return lineRange(doc, index, last);
+}
+
+/** Every line of the list containing the top-level bullet `root`, bridging blank lines. */
+function wholeList(doc: MarkdownDocument, root: number): TextRange {
+  const indent = indentWidth(doc.lines[root].text);
+  const belongs = (lineIndex: number): boolean => {
+    const text = doc.lines[lineIndex].text;
+    if (doc.headingLevels[lineIndex] !== null) return false;
+    const width = indentWidth(text);
+    return isListLine(doc, lineIndex) ? width >= indent : width > indent;
+  };
+
+  let first = root;
+  for (let lineIndex = root - 1; lineIndex >= 0; lineIndex -= 1) {
+    if (isBlankLine(doc.lines[lineIndex].text)) continue;
+    if (!belongs(lineIndex)) break;
+    first = lineIndex;
+  }
+  let last = root;
+  for (let lineIndex = root + 1; lineIndex < doc.lines.length; lineIndex += 1) {
+    if (isBlankLine(doc.lines[lineIndex].text)) continue;
+    if (!belongs(lineIndex)) break;
+    last = lineIndex;
+  }
+  return lineRange(doc, first, last);
+}
+
+/** Bullet line → bullet with children → each parent with children → whole list. */
+function listLadder(doc: MarkdownDocument, item: number): TextRange[] {
+  const ranges = [lineRange(doc, item), listItemSubtree(doc, item)];
+  let root = item;
+  let parent = shallowerListItemAbove(doc, item, indentWidth(doc.lines[item].text));
+  while (parent !== null) {
+    ranges.push(listItemSubtree(doc, parent));
+    root = parent;
+    parent = shallowerListItemAbove(doc, parent, indentWidth(doc.lines[parent].text));
+  }
+  ranges.push(wholeList(doc, root));
+  return ranges;
+}
+
+// ---------------------------------------------------------------------------
+// Paragraphs and sentences
+
+/** Paragraphs stop at blank lines, headings, bullets and the edge of a code block. */
+function isParagraphBoundary(doc: MarkdownDocument, index: number, fenced: boolean, rules: SelectionRules): boolean {
+  return isBlankLine(doc.lines[index].text)
+    || doc.headingLevels[index] !== null
+    || (rules.list && isListLine(doc, index))
+    || doc.inFence[index] !== fenced;
+}
+
+function paragraphRange(doc: MarkdownDocument, index: number, rules: SelectionRules): TextRange | null {
+  const fenced = doc.inFence[index];
+  if (isParagraphBoundary(doc, index, fenced, rules)) return null;
+  let first = index;
+  let last = index;
+  while (first > 0 && !isParagraphBoundary(doc, first - 1, fenced, rules)) first -= 1;
+  while (last + 1 < doc.lines.length && !isParagraphBoundary(doc, last + 1, fenced, rules)) last += 1;
+  return lineRange(doc, first, last);
+}
+
+/**
+ * Splits a paragraph into sentences. A sentence ends after a run of marker characters (plus any
+ * closing quotes/brackets) followed by whitespace or the paragraph end. Full-width markers such as
+ * `。` end a sentence without needing a following space.
+ */
+export function sentenceRanges(text: string, paragraph: TextRange, markers: string): TextRange[] {
+  const markerSet = new Set(Array.from(markers));
+  const ranges: TextRange[] = [];
+  const push = (from: number, to: number): void => {
+    const trimmed = trimOuterWhitespace(text, { from, to });
+    if (trimmed.from < trimmed.to) ranges.push(trimmed);
+  };
+
+  let start = paragraph.from;
+  let index = paragraph.from;
+  while (index < paragraph.to) {
+    const character = text[index];
+    if (!markerSet.has(character)) {
+      index += 1;
       continue;
     }
+    let end = index + 1;
+    let fullWidth = character.charCodeAt(0) > 0x2000;
+    while (end < paragraph.to && markerSet.has(text[end])) {
+      if (text.charCodeAt(end) > 0x2000) fullWidth = true;
+      end += 1;
+    }
+    while (end < paragraph.to && SENTENCE_CLOSERS.has(text[end])) end += 1;
+    if (fullWidth || end >= paragraph.to || isWhitespace(text[end])) {
+      push(start, end);
+      start = end;
+    }
+    index = end;
+  }
+  push(start, paragraph.to);
+  return ranges;
+}
 
-    if (marker[0] === fenceCharacter && marker.length >= fenceLength) {
-      contexts.push({
-        range: { from: openStart, to: line.end }
-      });
-      openStart = null;
-      fenceCharacter = "";
-      fenceLength = 0;
+// ---------------------------------------------------------------------------
+// In-line steps (word, boundaries, pairs, tokens)
+
+function expandWord(text: string, offset: number): TextRange | null {
+  if (text.length === 0) return null;
+  offset = clamp(offset, 0, text.length);
+  const atLineEnd = offset === text.length || text[offset] === "\n";
+  if ((atLineEnd || !isWord(text[offset])) && offset > 0 && text[offset - 1] !== "\n" && (atLineEnd || isWord(text[offset - 1]))) {
+    offset -= 1;
+  }
+  const current = text[offset];
+  if (!current || current === "\n") return null;
+
+  if (isWord(current)) {
+    let from = offset;
+    let to = offset;
+    while (from > 0 && isWord(text[from - 1])) from -= 1;
+    while (to < text.length && isWord(text[to])) to += 1;
+    return { from, to };
+  }
+  return { from: offset, to: offset + 1 };
+}
+
+function expandBoundaryRun(text: string, range: TextRange, rules: SelectionRules): TextRange | null {
+  if (range.from >= range.to) return null;
+  for (let index = range.from; index < range.to; index += 1) {
+    if (!isAllowedBoundaryCharacter(text[index], rules)) return null;
+  }
+  return expandAdjacentBoundaries(text, range, rules);
+}
+
+function expandAdjacentBoundaries(text: string, range: TextRange, rules: SelectionRules): TextRange | null {
+  if (range.from >= range.to) return null;
+  let from = range.from;
+  let to = range.to;
+  while (from > 0 && isAllowedBoundaryCharacter(text[from - 1], rules)) from -= 1;
+  while (to < text.length && isAllowedBoundaryCharacter(text[to], rules)) to += 1;
+  return from === range.from && to === range.to ? null : { from, to };
+}
+
+function expandToken(text: string, range: TextRange, rules: SelectionRules): TextRange | null {
+  const candidate = trimOuterWhitespace(text, range);
+  if (candidate.from >= candidate.to) return null;
+  let from = candidate.from;
+  let to = candidate.to;
+  while (from > 0 && !isWhitespace(text[from - 1]) && (rules.punctuation || !isPunctuationOrSymbol(text[from - 1]))) from -= 1;
+  while (to < text.length && !isWhitespace(text[to]) && (rules.punctuation || !isPunctuationOrSymbol(text[to]))) to += 1;
+  return { from, to };
+}
+
+/** Bracket pairs (and, optionally, Markdown emphasis/code runs) within `scope` enclosing `range`. */
+function surroundingPairRanges(text: string, range: TextRange, scope: TextRange, includeMarkdownDelimiters: boolean): TextRange[] {
+  const ranges: TextRange[] = [];
+  const stack: Array<{ opening: string; index: number }> = [];
+  const closingToOpening: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
+
+  for (let index = scope.from; index < scope.to; index += 1) {
+    if (text[index - 1] === "\\") continue;
+    const character = text[index];
+    if (character === "(" || character === "[" || character === "{") {
+      stack.push({ opening: character, index });
+      continue;
+    }
+    const opening = closingToOpening[character];
+    if (!opening) continue;
+    for (let stackIndex = stack.length - 1; stackIndex >= 0; stackIndex -= 1) {
+      if (stack[stackIndex].opening !== opening) continue;
+      const pair = { from: stack[stackIndex].index, to: index + 1 };
+      if (rangeContains(pair, range)) ranges.push(pair);
+      stack.splice(stackIndex, 1);
+      break;
     }
   }
 
-  if (openStart !== null) {
-    contexts.push({
-      range: { from: openStart, to: text.length }
-    });
+  if (!includeMarkdownDelimiters) return ranges;
+
+  // Delimiter runs (`**`, `_`, `` ` ``, `~~`) pair with the next run of the same character and length.
+  const runs: Array<{ character: string; length: number; index: number }> = [];
+  for (let index = scope.from; index < scope.to; index += 1) {
+    const character = text[index];
+    if (!"`*_~".includes(character) || text[index - 1] === "\\") continue;
+    let end = index;
+    while (end < scope.to && text[end] === character) end += 1;
+    const length = end - index;
+    const intraword = character === "_" && isWord(text[index - 1] ?? "") && isWord(text[end] ?? "");
+    if (!intraword) {
+      let match = runs.length - 1;
+      while (match >= 0 && (runs[match].character !== character || runs[match].length !== length)) match -= 1;
+      if (match === -1) {
+        runs.push({ character, length, index });
+      } else {
+        const pair = { from: runs[match].index, to: end };
+        if (rangeContains(pair, range)) ranges.push(pair);
+        runs.splice(match);
+      }
+    }
+    index = end - 1;
   }
-  return contexts;
+  return ranges;
 }
+
+function quotedRanges(text: string, range: TextRange, scope: TextRange): TextRange[] {
+  const ranges: TextRange[] = [];
+  for (const quote of ["\"", "'"]) {
+    let opening = -1;
+    for (let index = scope.from; index < scope.to; index += 1) {
+      if (text[index] !== quote || text[index - 1] === "\\") continue;
+      if (opening === -1) {
+        opening = index;
+        continue;
+      }
+      const candidate = { from: opening, to: index + 1 };
+      if (rangeContains(candidate, range)) ranges.push(candidate);
+      opening = -1;
+    }
+  }
+  return ranges;
+}
+
+/** The optional fine-grained steps, each behind its own rule. */
+function inlineSteps(text: string, range: TextRange, scope: TextRange, rules: SelectionRules): Array<TextRange | null> {
+  if (range.from === range.to) return [];
+  return [
+    expandAdjacentBoundaries(text, range, rules),
+    expandBoundaryRun(text, range, rules),
+    ...(rules.pairs ? surroundingPairRanges(text, range, scope, true) : []),
+    rules.token ? expandToken(text, range, rules) : null
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// LaTeX
 
 function parseLatexRanges(text: string): TextRange[] {
   const ranges: TextRange[] = [];
-  const lines = getLines(text);
   const stack: Array<{ start: number; environment: string | null }> = [];
 
-  for (const line of lines) {
+  for (const line of getLines(text)) {
     const startMatch = line.text.match(LATEX_BLOCK_START);
     if (startMatch) {
       stack.push({ start: line.start, environment: startMatch[1] ?? null });
@@ -188,294 +534,7 @@ function findContainingLatexRange(text: string, range: TextRange): TextRange | n
   return parseLatexRanges(text).find((candidate) => rangeContains(candidate, range)) ?? null;
 }
 
-function findContainingFenceContext(text: string, range: TextRange): FenceContext | null {
-  return parseFenceContexts(text).find((context) => rangeContains(context.range, range)) ?? null;
-}
-
-function getListInfo(lineText: string): { indent: number; markerStart: number; contentStart: number } | null {
-  const match = lineText.match(LIST_MARKER);
-  if (!match) return null;
-  return {
-    indent: match[1].length,
-    markerStart: match[1].length,
-    contentStart: match[0].length
-  };
-}
-
-function isBlankLine(text: string): boolean {
-  return /^\s*$/u.test(text);
-}
-
-function listBlockForLine(lines: ReturnType<typeof getLines>, index: number, indent: number): TextRange | null {
-  const current = getListInfo(lines[index]?.text ?? "");
-  if (!current || current.indent !== indent) return null;
-
-  let first = index;
-  let last = index;
-  while (first > 0) {
-    const previous = getListInfo(lines[first - 1].text);
-    if (!previous || previous.indent < indent || isBlankLine(lines[first - 1].text)) break;
-    first -= 1;
-  }
-  while (last + 1 < lines.length) {
-    const nextText = lines[last + 1].text;
-    const next = getListInfo(nextText);
-    if (isBlankLine(nextText) || !next || next.indent < indent) break;
-    last += 1;
-  }
-
-  return { from: lines[first].start, to: lines[last].end };
-}
-
-function headingLevel(lineText: string): number | null {
-  const match = lineText.match(/^\s{0,3}(#{1,6})(?:\s+|$)/u);
-  return match ? match[1].length : null;
-}
-
-function headingSectionForLine(lines: ReturnType<typeof getLines>, index: number): TextRange | null {
-  const level = headingLevel(lines[index]?.text ?? "");
-  if (level === null) return null;
-
-  let nextHeading = index + 1;
-  while (nextHeading < lines.length) {
-    const nextLevel = headingLevel(lines[nextHeading].text);
-    if (nextLevel !== null && nextLevel <= level) break;
-    nextHeading += 1;
-  }
-  const last = nextHeading < lines.length ? nextHeading - 1 : lines.length - 1;
-  return { from: lines[index].start, to: lines[last].end };
-}
-
-function headingHierarchyRanges(lines: ReturnType<typeof getLines>, index: number): TextRange[] {
-  let headingIndex = index;
-  let level = headingLevel(lines[headingIndex]?.text ?? "");
-
-  if (level === null) {
-    for (let lineIndex = index - 1; lineIndex >= 0; lineIndex -= 1) {
-      const candidateLevel = headingLevel(lines[lineIndex].text);
-      if (candidateLevel !== null) {
-        headingIndex = lineIndex;
-        level = candidateLevel;
-        break;
-      }
-    }
-  }
-
-  if (level === null) return [];
-  const ranges: TextRange[] = [];
-  const currentSection = headingSectionForLine(lines, headingIndex);
-  if (currentSection) ranges.push(currentSection);
-
-  let childIndex = headingIndex;
-  let childLevel = level;
-  while (childIndex > 0) {
-    let parentIndex = childIndex - 1;
-    let parentLevel: number | null = null;
-    while (parentIndex >= 0) {
-      const candidateLevel = headingLevel(lines[parentIndex].text);
-      if (candidateLevel !== null && candidateLevel < childLevel) {
-        parentLevel = candidateLevel;
-        break;
-      }
-      parentIndex -= 1;
-    }
-    if (parentIndex < 0 || parentLevel === null) break;
-    const parentSection = headingSectionForLine(lines, parentIndex);
-    if (parentSection) ranges.push(parentSection);
-    childIndex = parentIndex;
-    childLevel = parentLevel;
-  }
-  return ranges;
-}
-
-function expandWord(text: string, offset: number): TextRange | null {
-  if (offset >= text.length) offset = text.length - 1;
-  if (offset < 0) return null;
-
-  if (!isWord(text[offset]) && offset > 0 && isWord(text[offset - 1])) offset -= 1;
-
-  let from = offset;
-  let to = offset;
-  const current = text[offset];
-  if (!current) return null;
-
-  if (isWord(current)) {
-    while (from > 0 && isWord(text[from - 1])) from -= 1;
-    while (to < text.length && isWord(text[to])) to += 1;
-    return { from, to };
-  }
-
-  return { from, to: offset + 1 };
-}
-
-function expandBoundaryRun(text: string, range: TextRange, rules: SelectionRules): TextRange | null {
-  const candidate = normalizeRange(range, text.length);
-  if (candidate.from >= candidate.to) return null;
-
-  for (let index = candidate.from; index < candidate.to; index += 1) {
-    if (!isAllowedBoundaryCharacter(text[index], rules)) return null;
-  }
-
-  let from = candidate.from;
-  let to = candidate.to;
-  while (from > 0 && isAllowedBoundaryCharacter(text[from - 1], rules)) from -= 1;
-  while (to < text.length && isAllowedBoundaryCharacter(text[to], rules)) to += 1;
-  return from === candidate.from && to === candidate.to ? null : { from, to };
-}
-
-function expandAdjacentBoundaries(text: string, range: TextRange, rules: SelectionRules): TextRange | null {
-  const candidate = normalizeRange(range, text.length);
-  if (candidate.from >= candidate.to) return null;
-
-  let from = candidate.from;
-  let to = candidate.to;
-  while (from > 0 && isAllowedBoundaryCharacter(text[from - 1], rules)) from -= 1;
-  while (to < text.length && isAllowedBoundaryCharacter(text[to], rules)) to += 1;
-  return from === candidate.from && to === candidate.to ? null : { from, to };
-}
-
-function expandToken(text: string, range: TextRange, rules: SelectionRules): TextRange | null {
-  const candidate = trimOuterWhitespace(text, range);
-  if (candidate.from >= candidate.to) return null;
-  let from = candidate.from;
-  let to = candidate.to;
-  while (from > 0 && !isWhitespace(text[from - 1]) && (rules.punctuation || !isPunctuationOrSymbol(text[from - 1]))) from -= 1;
-  while (to < text.length && !isWhitespace(text[to]) && (rules.punctuation || !isPunctuationOrSymbol(text[to]))) to += 1;
-  return { from, to };
-}
-
-function expandParagraph(text: string, range: TextRange): TextRange | null {
-  const startLine = lineNumberAt(text, range.from);
-  const endOffset = Math.max(range.from, range.to - 1);
-  const endLine = lineNumberAt(text, endOffset);
-  const lines = getLines(text);
-  let first = startLine;
-  let last = endLine;
-
-  while (first > 0 && !isBlankLine(lines[first - 1].text)) first -= 1;
-  while (last + 1 < lines.length && !isBlankLine(lines[last + 1].text)) last += 1;
-  return { from: lines[first].start, to: lines[last].end };
-}
-
-function expandDocument(text: string): TextRange {
-  return { from: 0, to: text.length };
-}
-
-function rangeContains(outer: TextRange, inner: TextRange): boolean {
-  return outer.from <= inner.from && outer.to >= inner.to;
-}
-
-function getListExpansionRanges(text: string, range: TextRange): TextRange[] {
-  const lines = getLines(text);
-  const lineIndex = lineNumberAt(text, clamp(range.from, 0, text.length));
-  const currentLine = lines[lineIndex];
-  const current = getListInfo(currentLine?.text ?? "");
-  if (!current || !currentLine) return [];
-
-  const ranges: TextRange[] = [];
-  const itemStart = currentLine.start + current.indent;
-  ranges.push({ from: itemStart, to: currentLine.end });
-
-  let indent = current.indent;
-  let itemIndex = lineIndex;
-  while (true) {
-    const block = listBlockForLine(lines, itemIndex, indent);
-    if (block) ranges.push(block);
-
-    let parentIndex = itemIndex - 1;
-    let parentIndent: number | null = null;
-    while (parentIndex >= 0) {
-      const parent = getListInfo(lines[parentIndex].text);
-      if (parent && parent.indent < indent) {
-        parentIndent = parent.indent;
-        break;
-      }
-      if (isBlankLine(lines[parentIndex].text)) break;
-      parentIndex -= 1;
-    }
-    if (parentIndex < 0 || parentIndent === null) break;
-    itemIndex = parentIndex;
-    indent = parentIndent;
-  }
-
-  return ranges;
-}
-
-function getCodeLineRange(text: string, range: TextRange): TextRange | null {
-  const start = lineStart(text, range.from);
-  const end = lineEnd(text, Math.max(range.from, range.to));
-  return { from: start, to: end };
-}
-
-function addSurroundingPairRanges(text: string, range: TextRange, includeMarkdownDelimiters = true): TextRange[] {
-  const ranges: TextRange[] = [];
-  const stack: Array<{ opening: string; index: number }> = [];
-  const closingToOpening: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
-
-  for (let index = 0; index < text.length; index += 1) {
-    if (text[index - 1] === "\\") continue;
-    const character = text[index];
-    if (character === "(" || character === "[" || character === "{") {
-      stack.push({ opening: character, index });
-      continue;
-    }
-    const opening = closingToOpening[character];
-    if (!opening) continue;
-    for (let stackIndex = stack.length - 1; stackIndex >= 0; stackIndex -= 1) {
-      if (stack[stackIndex].opening !== opening) continue;
-      const pair = { from: stack[stackIndex].index, to: index + 1 };
-      if (rangeContains(pair, range)) ranges.push(pair);
-      stack.splice(stackIndex, 1);
-      break;
-    }
-  }
-
-  if (!includeMarkdownDelimiters) return ranges;
-
-  for (const delimiter of ["`", "*", "_", "~"]) {
-    let opening = -1;
-    for (let index = 0; index < text.length; index += 1) {
-      if (text[index] !== delimiter || text[index - 1] === "\\") continue;
-      if (opening === -1) {
-        opening = index;
-      } else {
-        const pair = { from: opening, to: index + 1 };
-        if (rangeContains(pair, range)) ranges.push(pair);
-        opening = -1;
-      }
-    }
-  }
-  return ranges;
-}
-
-function addQuotedRanges(text: string, range: TextRange): TextRange[] {
-  const ranges: TextRange[] = [];
-  for (const quote of ["\"", "'"]) {
-    let opening = -1;
-    for (let index = 0; index < text.length; index += 1) {
-      if (text[index] !== quote || text[index - 1] === "\\") continue;
-      if (opening === -1) {
-        opening = index;
-        continue;
-      }
-      const candidate = { from: opening, to: index + 1 };
-      if (rangeContains(candidate, range)) ranges.push(candidate);
-      opening = -1;
-    }
-  }
-  return ranges;
-}
-
-function addCodePairRanges(text: string, range: TextRange): TextRange[] {
-  return [...addSurroundingPairRanges(text, range, false), ...addQuotedRanges(text, range)];
-}
-
-function normalizeRange(range: TextRange, textLength: number): TextRange {
-  return {
-    from: clamp(Math.min(range.from, range.to), 0, textLength),
-    to: clamp(Math.max(range.from, range.to), 0, textLength)
-  };
-}
+// ---------------------------------------------------------------------------
 
 export function getSelectionRange(selection: SelectionState): TextRange {
   return {
@@ -484,69 +543,68 @@ export function getSelectionRange(selection: SelectionState): TextRange {
   };
 }
 
+/**
+ * Returns the next larger range around the selection. Every structural level that applies is
+ * collected as a candidate, and the smallest one strictly enclosing the selection wins, so levels
+ * chain naturally: list/paragraph/code → heading section → parent sections → whole note.
+ */
 export function expandSelection(
   text: string,
   selection: SelectionState,
-  inputRules: Partial<SelectionRules> = DEFAULT_RULES
+  inputRules: Partial<SelectionRules> = DEFAULT_RULES,
+  sentenceMarkers = DEFAULT_SENTENCE_MARKERS
 ): TextRange {
   const rules = { ...DEFAULT_RULES, ...inputRules };
   const current = normalizeRange(getSelectionRange(selection), text.length);
+  const doc = parseDocument(text);
+  const lineIndex = lineNumberAt(text, current.from);
+  const line = lineRange(doc, lineIndex);
   const candidates: Array<TextRange | null> = [];
-  const cursor = current.from;
-  const fenceContext = rules.code ? findContainingFenceContext(text, current) : null;
-  const latexRange = rules.latex ? findContainingLatexRange(text, current) : null;
-  const lines = getLines(text);
-  const lineIndex = lineNumberAt(text, clamp(current.from, 0, text.length));
-  const currentLine = lines[lineIndex];
-  const listScope = rules.list && !!getListInfo(currentLine?.text ?? "");
-  const headingScope = rules.heading && (headingLevel(currentLine?.text ?? "") !== null || headingHierarchyRanges(lines, lineIndex).length > 0);
 
-  if (current.from === current.to) candidates.push(expandWord(text, cursor));
+  if (current.from === current.to) candidates.push(expandWord(text, current.from));
 
-  if (fenceContext) {
-    candidates.push(...addCodePairRanges(text, current));
-    candidates.push(getCodeLineRange(text, current));
-    candidates.push(fenceContext.range);
-  } else if (latexRange) {
-    candidates.push(...addSurroundingPairRanges(text, current, false));
-    candidates.push(latexRange);
-    if (rules.line) candidates.push(getCodeLineRange(text, current));
-  } else if (listScope) {
-    candidates.push(...getListExpansionRanges(text, current));
-  } else if (headingScope) {
-    if (headingLevel(currentLine?.text ?? "") !== null) {
-      candidates.push({ from: currentLine.start, to: currentLine.end });
-    }
-    candidates.push(...headingHierarchyRanges(lines, lineIndex));
-  } else {
-    if (current.from !== current.to) {
-      candidates.push(expandAdjacentBoundaries(text, current, rules));
-      candidates.push(expandBoundaryRun(text, current, rules));
-      candidates.push(addSurroundingPairRanges(text, current)[0] ?? null);
-      candidates.push(expandToken(text, current, rules));
+  const fence = rules.code
+    ? doc.fences.find((candidate) => rangeContains(lineRange(doc, candidate.first, candidate.last), current)) ?? null
+    : null;
+  const latex = rules.latex && !fence ? findContainingLatexRange(text, current) : null;
+  // The line whose structure (list item, heading, paragraph) the selection sits in.
+  const structureLine = fence ? fence.first : lineIndex;
+
+  if (fence) {
+    const fenceRange = lineRange(doc, fence.first, fence.last);
+    candidates.push(...surroundingPairRanges(text, current, fenceRange, false), ...quotedRanges(text, current, fenceRange));
+    candidates.push(line, fenceRange);
+  } else if (latex) {
+    candidates.push(...surroundingPairRanges(text, current, latex, false), latex);
+  }
+
+  const listItem = rules.list ? owningListItem(doc, structureLine) : null;
+  if (listItem !== null) {
+    if (!fence && structureLine === listItem) candidates.push(...inlineSteps(text, current, line, rules));
+    candidates.push(...listLadder(doc, listItem));
+  } else if (!fence && doc.headingLevels[structureLine] !== null) {
+    candidates.push(...inlineSteps(text, current, line, rules), line);
+  } else if (!fence) {
+    const paragraph = paragraphRange(doc, structureLine, rules);
+    if (paragraph) {
+      candidates.push(...inlineSteps(text, current, paragraph, rules));
+      if (rules.sentence) candidates.push(...sentenceRanges(text, paragraph, sentenceMarkers));
+      if (rules.line) candidates.push(line);
+      candidates.push(paragraph);
     }
   }
 
-  if (!fenceContext && !latexRange && !listScope && !headingScope) {
-    if (rules.line) {
-      candidates.push(getCodeLineRange(text, current));
-      candidates.push(expandParagraph(text, current));
-    }
-  }
-  candidates.push(expandDocument(text));
+  if (rules.heading) candidates.push(...headingLadder(doc, structureLine));
+  candidates.push({ from: 0, to: text.length });
 
-  const seen = new Set<string>();
+  let best: TextRange | null = null;
   for (const candidate of candidates) {
     if (!candidate) continue;
-    const normalized = normalizeRange(candidate, text.length);
-    const key = `${normalized.from}:${normalized.to}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    if (rangeContains(normalized, current) && (normalized.from !== current.from || normalized.to !== current.to)) {
-      return normalized;
-    }
+    const range = normalizeRange(candidate, text.length);
+    if (!rangeContains(range, current) || (range.from === current.from && range.to === current.to)) continue;
+    if (!best || range.to - range.from < best.to - best.from) best = range;
   }
-  return current;
+  return best ?? current;
 }
 
 export function shrinkSelection(history: SelectionState[], current: SelectionState): SelectionState {

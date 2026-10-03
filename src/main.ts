@@ -1,5 +1,6 @@
 import { Editor, MarkdownView, Notice, Plugin } from "obsidian";
 import {
+  DEFAULT_SENTENCE_MARKERS,
   expandSelection,
   getDefaultSelectionRules,
   getSelectionRange,
@@ -12,13 +13,23 @@ import {
 import { QuickExpandSelectionSettingTab } from "./settings";
 import { getLocaleStrings } from "./i18n";
 
-interface QuickExpandSelectionSettings {
+const SETTINGS_VERSION = 2;
+
+export interface QuickExpandSelectionSettings {
+  version: number;
   rules: SelectionRules;
+  sentenceMarkers: string;
 }
 
 const DEFAULT_SETTINGS: QuickExpandSelectionSettings = {
-  rules: getDefaultSelectionRules()
+  version: SETTINGS_VERSION,
+  rules: getDefaultSelectionRules(),
+  sentenceMarkers: DEFAULT_SENTENCE_MARKERS
 };
+
+// Rules whose meaning changed in V2 (they became opt-in fine-grained steps), so values saved by
+// the original plugin are not carried over.
+const V1_ONLY_RULES = ["whitespace", "punctuation", "line"] as const;
 
 interface EditorHistory {
   text: string;
@@ -38,12 +49,14 @@ export default class QuickExpandSelectionPlugin extends Plugin {
       id: "expand-selection",
       name: strings.commands.expandSelection,
       repeatable: true,
+      hotkeys: [{ modifiers: ["Mod"], key: "a" }],
       editorCallback: (editor) => this.expand(editor)
     });
     this.addCommand({
       id: "shrink-selection",
       name: strings.commands.shrinkSelection,
       repeatable: true,
+      hotkeys: [{ modifiers: ["Mod", "Shift"], key: "a" }],
       editorCallback: (editor) => this.shrink(editor)
     });
   }
@@ -54,13 +67,18 @@ export default class QuickExpandSelectionPlugin extends Plugin {
 
   async loadSettings(): Promise<void> {
     const saved = (await this.loadData()) as Partial<QuickExpandSelectionSettings> | null;
+    const savedRules: Partial<SelectionRules> = { ...(saved?.rules ?? {}) };
+    if ((saved?.version ?? 1) < SETTINGS_VERSION) {
+      for (const rule of V1_ONLY_RULES) delete savedRules[rule];
+    }
+    const rules = getDefaultSelectionRules();
+    for (const key of Object.keys(rules) as Array<keyof SelectionRules>) {
+      if (typeof savedRules[key] === "boolean") rules[key] = savedRules[key];
+    }
     this.settings = {
-      ...DEFAULT_SETTINGS,
-      ...saved,
-      rules: {
-        ...DEFAULT_SETTINGS.rules,
-        ...(saved?.rules ?? {})
-      }
+      version: SETTINGS_VERSION,
+      rules,
+      sentenceMarkers: typeof saved?.sentenceMarkers === "string" ? saved.sentenceMarkers : DEFAULT_SENTENCE_MARKERS
     };
   }
 
@@ -110,7 +128,7 @@ export default class QuickExpandSelectionPlugin extends Plugin {
     const text = this.getText(editor);
     const current = this.getSelectionState(editor, text);
     const history = this.ensureHistory(editor, text, current);
-    const nextRange = expandSelection(text, current, this.settings.rules);
+    const nextRange = expandSelection(text, current, this.settings.rules, this.settings.sentenceMarkers);
     const next: SelectionState = current.anchor <= current.head
       ? { anchor: nextRange.from, head: nextRange.to }
       : { anchor: nextRange.to, head: nextRange.from };
