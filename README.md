@@ -80,7 +80,9 @@ Steps that would not change the selection are skipped, for example "bullet with 
 
 ### Shrinking
 
-**Shrink selection** steps back through the selections you expanded through, in reverse. When there is nothing left to go back to, it collapses the selection to the cursor.
+**Shrink selection** steps back through the selections you expanded through, in reverse. Shrinking all the way puts the cursor back where it was before the first expand.
+
+**Escape** jumps straight back: right after expanding (or shrinking part of the way), Escape restores the cursor, or the selection, from before the first expand. Escape only does this while the selection is still the one the plugin made; otherwise it behaves as usual.
 
 The history is kept per editor. Typing, or changing the selection yourself, clears it, and the next shrink just collapses the selection. **Reset expansion history** in the settings clears it by hand.
 

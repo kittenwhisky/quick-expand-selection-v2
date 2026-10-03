@@ -1,4 +1,6 @@
-import { Editor, MarkdownView, Notice, Plugin } from "obsidian";
+import { Prec } from "@codemirror/state";
+import { keymap } from "@codemirror/view";
+import { Editor, MarkdownView, Notice, Plugin, editorInfoField } from "obsidian";
 import { parseHotkey } from "./hotkey";
 import {
   DEFAULT_INSERT_TOGGLE_HOTKEY,
@@ -109,6 +111,15 @@ export default class QuickExpandSelectionPlugin extends Plugin {
       hotkeys: [{ modifiers: ["Mod", "Shift"], key: "a" }],
       editorCallback: (editor) => this.shrink(editor)
     });
+
+    // Escape right after expanding returns the cursor to where it was before the first expand.
+    this.registerEditorExtension(Prec.high(keymap.of([{
+      key: "Escape",
+      run: (view) => {
+        const editor = view.state.field(editorInfoField, false)?.editor;
+        return editor ? this.returnToOrigin(editor) : false;
+      }
+    }])));
 
     this.addCommand({
       id: "move-selection-to-note-heading",
@@ -283,6 +294,24 @@ export default class QuickExpandSelectionPlugin extends Plugin {
       history.selections.push(next);
     }
     this.setSelection(editor, text, next);
+  }
+
+  /**
+   * Restores the selection from before the first expand, if the current selection is still the
+   * last one this plugin made and the note is unchanged. Returns false (leaving Escape to do its
+   * usual job) otherwise.
+   */
+  private returnToOrigin(editor: Editor): boolean {
+    const history = this.historyByEditor.get(editor);
+    if (!history || history.selections.length < 2) return false;
+    const text = this.getText(editor);
+    if (history.text !== text) return false;
+    const current = getSelectionRange(this.getSelectionState(editor, text));
+    const last = getSelectionRange(history.selections[history.selections.length - 1]);
+    if (current.from !== last.from || current.to !== last.to) return false;
+    this.historyByEditor.delete(editor);
+    this.setSelection(editor, text, history.selections[0]);
+    return true;
   }
 
   private shrink(editor: Editor): void {
