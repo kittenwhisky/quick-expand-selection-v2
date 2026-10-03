@@ -65,9 +65,56 @@ export function matchesHotkey(hotkey: ParsedHotkey, event: KeyEventLike, isMac: 
   return event.key.toLowerCase() === hotkey.key;
 }
 
+/** An Obsidian hotkey (`{ modifiers: ["Mod"], key: "ArrowUp" }`) in this module's form. */
+export function fromObsidianHotkey(hotkey: { modifiers: string[]; key: string }): ParsedHotkey | null {
+  const parts = [...hotkey.modifiers, hotkey.key];
+  return parseHotkey(parts.join("+"));
+}
+
+const KEY_NAMES: Record<string, string> = {
+  arrowup: "ArrowUp",
+  arrowdown: "ArrowDown",
+  arrowleft: "ArrowLeft",
+  arrowright: "ArrowRight",
+  pageup: "PageUp",
+  pagedown: "PageDown",
+  backspace: "Backspace",
+  delete: "Delete",
+  enter: "Enter",
+  escape: "Escape",
+  home: "Home",
+  end: "End",
+  insert: "Insert",
+  tab: "Tab"
+};
+
+/** This module's form back to Obsidian's (`{ modifiers: ["Alt"], key: "A" }`), for `Scope.register`. */
+export function toObsidianHotkey(hotkey: ParsedHotkey): { modifiers: Array<"Mod" | "Ctrl" | "Meta" | "Alt" | "Shift">; key: string } {
+  const modifiers: Array<"Mod" | "Ctrl" | "Meta" | "Alt" | "Shift"> = [];
+  if (hotkey.mod) modifiers.push("Mod");
+  if (hotkey.ctrl) modifiers.push("Ctrl");
+  if (hotkey.meta) modifiers.push("Meta");
+  if (hotkey.alt) modifiers.push("Alt");
+  if (hotkey.shift) modifiers.push("Shift");
+  const key = KEY_NAMES[hotkey.key]
+    ?? (hotkey.key.length === 1 ? hotkey.key.toUpperCase() : hotkey.key.charAt(0).toUpperCase() + hotkey.key.slice(1));
+  return { modifiers, key };
+}
+
+const KEY_SYMBOLS: Record<string, string> = {
+  arrowup: "↑",
+  arrowdown: "↓",
+  arrowleft: "←",
+  arrowright: "→",
+  enter: "↵",
+  escape: "Esc",
+  " ": "Space"
+};
+
 /** How the hotkey is shown to the user, e.g. `Alt+A` on Windows or `⌥A` on macOS. */
 export function formatHotkey(hotkey: ParsedHotkey, isMac: boolean): string {
-  const key = hotkey.key.length === 1 ? hotkey.key.toUpperCase() : hotkey.key.charAt(0).toUpperCase() + hotkey.key.slice(1);
+  const key = KEY_SYMBOLS[hotkey.key]
+    ?? (hotkey.key.length === 1 ? hotkey.key.toUpperCase() : hotkey.key.charAt(0).toUpperCase() + hotkey.key.slice(1));
   if (isMac) {
     return [
       hotkey.ctrl ? "⌃" : "",

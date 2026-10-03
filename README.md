@@ -146,6 +146,22 @@ Indentation goes by level number, so an H3 sits in the H3 column even when the n
 - Long headings are cut off with "…"; hover to see the full heading.
 - Headings inside code blocks are not listed. Nor are headings inside the selection itself, since text can't move into itself.
 
+### Folding the list
+
+The hotkeys you have assigned to Obsidian's fold commands also work in the heading list. They are read from **Settings → Hotkeys**, on either the core commands or V2's versions of them, and shown in the footer.
+
+| Command | In the heading list |
+|---|---|
+| Fold more | Hides the highlighted heading's subheadings. On a heading with none, or one already folded, folds its parent instead and moves the highlight there, so repeated presses fold outwards. |
+| Fold less | Unfolds the highlighted heading; pressed again, unfolds its folded subheadings one level at a time. |
+| Fold all headings and lists | Folds every heading with subheadings, leaving the top level. The highlight moves to the visible heading containing it. |
+| Unfold all headings and lists | Shows every heading. |
+
+- A folded heading shows a faint **+N**: the number of subheadings hidden under it.
+- Folding applies while the search box is empty. Typing always searches every heading, folded or not.
+- The list opens fully unfolded each time.
+- While the list is open, these keys act on the list only, not on the note behind it.
+
 ### Append and Prepend
 
 Below the search box sits a toggle like the ones in Obsidian's settings: **Prepend [toggle] Append (Alt+A)**. Switched to the left means Prepend, to the right means Append, and the active word is shown brighter. Click the toggle or either word, or press the hotkey shown in brackets.
@@ -307,7 +323,8 @@ Layout:
 | `src/coreCommands.ts` | The wrapped core commands |
 | `src/moveToHeading.ts` | Planning a move under a heading (pure functions) |
 | `src/moveToHeadingModal.ts` | The heading list with the Append/Prepend toggle, and the partial-line confirmation |
-| `src/hotkey.ts` | Parsing, matching and displaying the toggle hotkey setting |
+| `src/hotkey.ts` | Parsing, matching and displaying hotkeys (the toggle setting, and the fold hotkeys read from Obsidian) |
+| `src/headingFolds.ts` | Folding in the heading list (pure functions) |
 | `src/i18n-core.ts`, `src/i18n.ts` | English and Simplified Chinese strings |
 | `src/outliner/` | Code adapted from Outliner: list parser and model, editor wrapper, drag and drop, vertical lines |
 | `styles.css` | Styles for the lines and drag and drop |

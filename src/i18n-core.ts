@@ -13,6 +13,11 @@ export interface LocaleStrings {
     autocomplete: string;
     move: string;
     dismiss: string;
+    foldMore: string;
+    foldLess: string;
+    foldAll: string;
+    unfoldAll: string;
+    hiddenSubheadings: string;
     append: string;
     prepend: string;
     nothingSelected: string;
@@ -78,6 +83,11 @@ const en: LocaleStrings = {
     autocomplete: "to autocomplete",
     move: "to move",
     dismiss: "to dismiss",
+    foldMore: "to fold",
+    foldLess: "to unfold",
+    foldAll: "to fold all",
+    unfoldAll: "to unfold all",
+    hiddenSubheadings: "{count} subheadings hidden",
     append: "Append",
     prepend: "Prepend",
     nothingSelected: "Select the text to move first.",
@@ -154,6 +164,11 @@ const zhCn: LocaleStrings = {
     autocomplete: "自动补全",
     move: "移动",
     dismiss: "关闭",
+    foldMore: "折叠",
+    foldLess: "展开",
+    foldAll: "全部折叠",
+    unfoldAll: "全部展开",
+    hiddenSubheadings: "已隐藏 {count} 个子标题",
     append: "追加",
     prepend: "前置",
     nothingSelected: "请先选择要移动的文本。",

@@ -1,4 +1,5 @@
 import type { App, Plugin } from "obsidian";
+import { fromObsidianHotkey, type ParsedHotkey } from "./hotkey";
 
 /**
  * Core editor commands that sit naturally beside expand/shrink selection. V2 registers a thin
@@ -31,6 +32,33 @@ function registry(app: App): CommandRegistry {
 export function coreCommandName(app: App, id: string, fallbackName: string): string {
   const name = registry(app).commands[id]?.name ?? fallbackName;
   return name.replace(/^[^:]+:\s*/u, "");
+}
+
+interface HotkeyManager {
+  getHotkeys(id: string): Array<{ modifiers: string[]; key: string }> | undefined;
+  getDefaultHotkeys(id: string): Array<{ modifiers: string[]; key: string }> | undefined;
+}
+
+/**
+ * The hotkeys currently assigned (in Settings → Hotkeys) to a core command and to V2's wrapper
+ * for it. Reads Obsidian's hotkey manager, which is not public API, so failures give no hotkeys.
+ */
+export function assignedHotkeys(plugin: Plugin, coreId: string): ParsedHotkey[] {
+  const manager = (plugin.app as unknown as { hotkeyManager?: HotkeyManager }).hotkeyManager;
+  if (!manager) return [];
+  const ids = [coreId, `${plugin.manifest.id}:${wrapperId(coreId)}`];
+  const hotkeys: ParsedHotkey[] = [];
+  for (const id of ids) {
+    try {
+      for (const hotkey of manager.getHotkeys(id) ?? manager.getDefaultHotkeys(id) ?? []) {
+        const parsed = fromObsidianHotkey(hotkey);
+        if (parsed) hotkeys.push(parsed);
+      }
+    } catch {
+      // Hotkey manager changed shape; carry on without these hotkeys.
+    }
+  }
+  return hotkeys;
 }
 
 function wrapperId(coreId: string): string {

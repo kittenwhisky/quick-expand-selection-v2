@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatHotkey, matchesHotkey, parseHotkey, type KeyEventLike } from "../src/hotkey";
+import { formatHotkey, fromObsidianHotkey, matchesHotkey, parseHotkey, toObsidianHotkey, type KeyEventLike } from "../src/hotkey";
 
 function event(overrides: Partial<KeyEventLike>): KeyEventLike {
   return { key: "a", code: "KeyA", ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...overrides };
@@ -41,4 +41,21 @@ test("formats for display per platform", () => {
   assert.ok(altA);
   assert.equal(formatHotkey(altA, false), "Alt+A");
   assert.equal(formatHotkey(altA, true), "⌥A");
+});
+
+test("converts Obsidian hotkeys and shows arrow keys as arrows", () => {
+  const foldMore = fromObsidianHotkey({ modifiers: ["Mod"], key: "ArrowUp" });
+  assert.ok(foldMore);
+  assert.equal(formatHotkey(foldMore, false), "Ctrl+↑");
+  assert.equal(formatHotkey(foldMore, true), "⌘↑");
+  assert.ok(matchesHotkey(foldMore, event({ ctrlKey: true, key: "ArrowUp", code: "ArrowUp" }), false));
+});
+
+test("round-trips to Obsidian's hotkey form for registering in a scope", () => {
+  assert.deepEqual(toObsidianHotkey(parseHotkey("alt+a")!), { modifiers: ["Alt"], key: "A" });
+  assert.deepEqual(toObsidianHotkey(fromObsidianHotkey({ modifiers: ["Alt", "Mod", "Shift"], key: "ArrowUp" })!), {
+    modifiers: ["Mod", "Alt", "Shift"],
+    key: "ArrowUp"
+  });
+  assert.deepEqual(toObsidianHotkey(parseHotkey("Ctrl+F2")!), { modifiers: ["Ctrl"], key: "F2" });
 });

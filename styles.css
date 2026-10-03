@@ -131,6 +131,13 @@ html body.qes-outliner-dnd.qes-outliner-dragging {
   white-space: nowrap;
 }
 
+.qes-heading-folded {
+  flex: none;
+  margin-left: 0.5em;
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
+
 .qes-move-position {
   display: flex;
   align-items: center;

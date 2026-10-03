@@ -24,7 +24,7 @@ import {
 } from "./selection";
 import { QuickExpandSelectionSettingTab } from "./settings";
 import { getLocaleStrings } from "./i18n";
-import { registerCoreCommandWrappers, removeCoreCommandWrappers } from "./coreCommands";
+import { assignedHotkeys, registerCoreCommandWrappers, removeCoreCommandWrappers } from "./coreCommands";
 import { ChangesApplicator } from "./outliner/ChangesApplicator";
 import { DragAndDrop } from "./outliner/DragAndDrop";
 import type { Feature } from "./outliner/Feature";
@@ -212,6 +212,12 @@ export default class QuickExpandSelectionPlugin extends Plugin {
       headings,
       position: this.settings.insertPosition,
       toggleHotkey: parseHotkey(this.settings.insertToggleHotkey),
+      foldHotkeys: {
+        foldMore: assignedHotkeys(this, "editor:fold-more"),
+        foldLess: assignedHotkeys(this, "editor:fold-less"),
+        foldAll: assignedHotkeys(this, "editor:fold-all"),
+        unfoldAll: assignedHotkeys(this, "editor:unfold-all")
+      },
       strings,
       onPositionChange: (position) => {
         this.settings.insertPosition = position;

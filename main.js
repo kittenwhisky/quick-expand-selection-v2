@@ -54,9 +54,57 @@ function matchesHotkey(hotkey, event, isMac) {
         return event.code === `Digit${hotkey.key}`;
     return event.key.toLowerCase() === hotkey.key;
 }
+/** An Obsidian hotkey (`{ modifiers: ["Mod"], key: "ArrowUp" }`) in this module's form. */
+function fromObsidianHotkey(hotkey) {
+    const parts = [...hotkey.modifiers, hotkey.key];
+    return parseHotkey(parts.join("+"));
+}
+const KEY_NAMES = {
+    arrowup: "ArrowUp",
+    arrowdown: "ArrowDown",
+    arrowleft: "ArrowLeft",
+    arrowright: "ArrowRight",
+    pageup: "PageUp",
+    pagedown: "PageDown",
+    backspace: "Backspace",
+    delete: "Delete",
+    enter: "Enter",
+    escape: "Escape",
+    home: "Home",
+    end: "End",
+    insert: "Insert",
+    tab: "Tab"
+};
+/** This module's form back to Obsidian's (`{ modifiers: ["Alt"], key: "A" }`), for `Scope.register`. */
+function toObsidianHotkey(hotkey) {
+    const modifiers = [];
+    if (hotkey.mod)
+        modifiers.push("Mod");
+    if (hotkey.ctrl)
+        modifiers.push("Ctrl");
+    if (hotkey.meta)
+        modifiers.push("Meta");
+    if (hotkey.alt)
+        modifiers.push("Alt");
+    if (hotkey.shift)
+        modifiers.push("Shift");
+    const key = KEY_NAMES[hotkey.key]
+        ?? (hotkey.key.length === 1 ? hotkey.key.toUpperCase() : hotkey.key.charAt(0).toUpperCase() + hotkey.key.slice(1));
+    return { modifiers, key };
+}
+const KEY_SYMBOLS = {
+    arrowup: "↑",
+    arrowdown: "↓",
+    arrowleft: "←",
+    arrowright: "→",
+    enter: "↵",
+    escape: "Esc",
+    " ": "Space"
+};
 /** How the hotkey is shown to the user, e.g. `Alt+A` on Windows or `⌥A` on macOS. */
 function formatHotkey(hotkey, isMac) {
-    const key = hotkey.key.length === 1 ? hotkey.key.toUpperCase() : hotkey.key.charAt(0).toUpperCase() + hotkey.key.slice(1);
+    const key = KEY_SYMBOLS[hotkey.key]
+        ?? (hotkey.key.length === 1 ? hotkey.key.toUpperCase() : hotkey.key.charAt(0).toUpperCase() + hotkey.key.slice(1));
     if (isMac) {
         return [
             hotkey.ctrl ? "⌃" : "",
@@ -787,6 +835,100 @@ function planMove(text, range, headingLine, position) {
     };
 }
 
+/**
+ * Folding in the heading list. Headings are identified by line; `folded` holds the lines of the
+ * headings whose subheadings are hidden.
+ */
+/** Index just past the last subheading of `headings[index]`. */
+function subtreeEnd(headings, index) {
+    let end = index + 1;
+    while (end < headings.length && headings[end].level > headings[index].level)
+        end += 1;
+    return end;
+}
+/** Number of subheadings (at any depth) under the heading at `index`. */
+function subheadingCount(headings, index) {
+    return subtreeEnd(headings, index) - index - 1;
+}
+function parentIndex(headings, index) {
+    for (let candidate = index - 1; candidate >= 0; candidate -= 1) {
+        if (headings[candidate].level < headings[index].level)
+            return candidate;
+    }
+    return -1;
+}
+/** The headings left visible once every folded heading's subheadings are hidden. */
+function visibleHeadings(headings, folded) {
+    const visible = [];
+    let index = 0;
+    while (index < headings.length) {
+        visible.push(headings[index]);
+        index = folded.has(headings[index].line) ? subtreeEnd(headings, index) : index + 1;
+    }
+    return visible;
+}
+/**
+ * Fold more on the heading at `line`: fold it if it has visible subheadings; otherwise (no
+ * subheadings, or already folded) fold its parent and move the highlight there.
+ * Returns the line to highlight afterwards.
+ */
+function foldMore(headings, folded, line) {
+    const index = headings.findIndex((heading) => heading.line === line);
+    if (index === -1)
+        return line;
+    if (subheadingCount(headings, index) > 0 && !folded.has(line)) {
+        folded.add(line);
+        return line;
+    }
+    const parent = parentIndex(headings, index);
+    if (parent === -1)
+        return line;
+    folded.add(headings[parent].line);
+    return headings[parent].line;
+}
+/**
+ * Fold less on the heading at `line`: unfold it if folded; otherwise unfold its folded
+ * subheadings that are currently visible, one level at a time.
+ */
+function foldLess(headings, folded, line) {
+    const index = headings.findIndex((heading) => heading.line === line);
+    if (index === -1)
+        return;
+    if (folded.delete(line))
+        return;
+    const end = subtreeEnd(headings, index);
+    const visible = new Set(visibleHeadings(headings, folded).map((heading) => heading.line));
+    for (let child = index + 1; child < end; child += 1) {
+        const childLine = headings[child].line;
+        if (visible.has(childLine))
+            folded.delete(childLine);
+    }
+}
+/**
+ * Fold all: fold every heading that has subheadings, leaving the top level. Returns the line to
+ * highlight: the visible heading that contains `line`.
+ */
+function foldAll(headings, folded, line) {
+    headings.forEach((heading, index) => {
+        if (subheadingCount(headings, index) > 0)
+            folded.add(heading.line);
+    });
+    return visibleAncestor(headings, folded, line);
+}
+/** Unfold all: show every heading. */
+function unfoldAll(folded) {
+    folded.clear();
+}
+/** The heading at `line` if visible, otherwise its nearest visible ancestor. */
+function visibleAncestor(headings, folded, line) {
+    const visible = new Set(visibleHeadings(headings, folded).map((heading) => heading.line));
+    let index = headings.findIndex((heading) => heading.line === line);
+    while (index !== -1 && !visible.has(headings[index].line))
+        index = parentIndex(headings, index);
+    return index === -1 ? line : headings[index].line;
+}
+
+const FOLD_ACTIONS = ["foldMore", "foldLess", "foldAll", "unfoldAll"];
 /** Quick-switcher-style list of the note's headings, with an Append/Prepend toggle. */
 class HeadingSwitcherModal extends obsidian.SuggestModal {
     constructor(app, options) {
@@ -794,30 +936,68 @@ class HeadingSwitcherModal extends obsidian.SuggestModal {
         this.options = options;
         this.toggle = null;
         this.positionLabels = new Map();
+        /** Lines of the headings whose subheadings are hidden. The list opens fully unfolded. */
+        this.folded = new Set();
+        /** Key presses already acted on, so the scope handler and the DOM fallback never both act. */
+        this.handledKeys = new WeakSet();
+        /** Fallback for keys the scope did not match (e.g. layout differences); same actions. */
         this.onKeyDown = (event) => {
-            const { toggleHotkey } = this.options;
-            if (!toggleHotkey || !matchesHotkey(toggleHotkey, event, obsidian.Platform.isMacOS))
+            if (this.handledKeys.has(event))
                 return;
-            event.preventDefault();
-            event.stopPropagation();
-            this.setPosition(this.position === "append" ? "prepend" : "append");
+            const { toggleHotkey, foldHotkeys } = this.options;
+            if (toggleHotkey && matchesHotkey(toggleHotkey, event, obsidian.Platform.isMacOS)) {
+                this.handleKey(event, () => this.flipPosition());
+                return;
+            }
+            const action = FOLD_ACTIONS.find((candidate) => foldHotkeys[candidate].some((hotkey) => matchesHotkey(hotkey, event, obsidian.Platform.isMacOS)));
+            if (action)
+                this.handleKey(event, () => this.fold(action));
         };
         this.position = options.position;
         const { strings } = options;
         this.setPlaceholder(strings.placeholder);
         this.emptyStateText = strings.noMatch;
         this.limit = 1000;
+        const foldInstructions = FOLD_ACTIONS.flatMap((action) => {
+            const hotkey = options.foldHotkeys[action][0];
+            return hotkey ? [{ command: formatHotkey(hotkey, obsidian.Platform.isMacOS), purpose: strings[action] }] : [];
+        });
         this.setInstructions([
             { command: "↑↓", purpose: strings.navigate },
             { command: "Tab", purpose: strings.autocomplete },
             { command: "↵", purpose: strings.move },
+            ...foldInstructions,
             { command: "esc", purpose: strings.dismiss }
         ]);
         this.scope.register([], "Tab", () => {
             this.autocomplete();
             return false;
         });
+        // Obsidian checks hotkeys at window level before the modal sees the key, and would otherwise
+        // run e.g. the app-wide Fold more on the note behind. Registering in the modal's own scope
+        // takes precedence while it is open, with Obsidian's own key matching.
+        if (options.toggleHotkey)
+            this.registerKey(options.toggleHotkey, () => this.flipPosition());
+        for (const action of FOLD_ACTIONS) {
+            for (const hotkey of options.foldHotkeys[action])
+                this.registerKey(hotkey, () => this.fold(action));
+        }
         this.modalEl.addClass("qes-heading-switcher");
+    }
+    registerKey(hotkey, run) {
+        const { modifiers, key } = toObsidianHotkey(hotkey);
+        this.scope.register(modifiers, key, (event) => {
+            this.handleKey(event, run);
+            return false;
+        });
+    }
+    handleKey(event, run) {
+        if (this.handledKeys.has(event))
+            return;
+        this.handledKeys.add(event);
+        event.preventDefault();
+        event.stopPropagation();
+        run();
     }
     onOpen() {
         void super.onOpen();
@@ -828,11 +1008,14 @@ class HeadingSwitcherModal extends obsidian.SuggestModal {
         this.modalEl.removeEventListener("keydown", this.onKeyDown, true);
         super.onClose();
     }
-    /** Headings in note order; typing filters them (fuzzy, like the quick switcher) without re-sorting. */
+    /**
+     * Headings in note order. With an empty box, folded headings' subheadings are hidden; typing
+     * searches every heading (fuzzy, like the quick switcher) without re-sorting.
+     */
     getSuggestions(query) {
         const trimmed = query.trim();
         if (!trimmed)
-            return this.options.headings.map((heading) => ({ heading, match: null }));
+            return visibleHeadings(this.options.headings, this.folded).map((heading) => ({ heading, match: null }));
         const search = obsidian.prepareFuzzySearch(trimmed);
         const suggestions = [];
         for (const heading of this.options.headings) {
@@ -849,6 +1032,15 @@ class HeadingSwitcherModal extends obsidian.SuggestModal {
         // Long headings are cut off with "…" by CSS; hovering shows the full text.
         const textEl = el.createSpan({ cls: "qes-heading-text", attr: { title: heading.text } });
         obsidian.renderMatches(textEl, heading.text, match?.matches ?? null);
+        if (!match && this.folded.has(heading.line)) {
+            const index = this.options.headings.indexOf(heading);
+            const hidden = subheadingCount(this.options.headings, index);
+            el.createSpan({
+                cls: "qes-heading-folded",
+                text: `+${hidden}`,
+                attr: { title: this.options.strings.hiddenSubheadings.replace("{count}", String(hidden)) }
+            });
+        }
     }
     onChooseSuggestion({ heading }) {
         this.options.onChoose(heading, this.position);
@@ -880,6 +1072,53 @@ class HeadingSwitcherModal extends obsidian.SuggestModal {
         }
         this.updateToggle();
     }
+    flipPosition() {
+        this.setPosition(this.position === "append" ? "prepend" : "append");
+    }
+    /** Folding acts on the highlighted heading, and only while the search box is empty. */
+    fold(action) {
+        if (this.inputEl.value.trim())
+            return;
+        const highlighted = this.highlighted();
+        if (!highlighted)
+            return;
+        const { headings } = this.options;
+        let highlight = highlighted.heading.line;
+        switch (action) {
+            case "foldMore":
+                highlight = foldMore(headings, this.folded, highlight);
+                break;
+            case "foldLess":
+                foldLess(headings, this.folded, highlight);
+                break;
+            case "foldAll":
+                highlight = foldAll(headings, this.folded, highlight);
+                break;
+            case "unfoldAll":
+                unfoldAll(this.folded);
+                break;
+        }
+        this.refresh(visibleAncestor(headings, this.folded, highlight));
+    }
+    chooser() {
+        // `chooser` is SuggestModal's internal list; not public API, so read it defensively.
+        return this.chooser;
+    }
+    highlighted() {
+        const chooser = this.chooser();
+        const values = chooser?.values ?? [];
+        return values[chooser?.selectedItem ?? 0] ?? values[0];
+    }
+    /** Re-renders the list and keeps the highlight on the heading at `line`. */
+    refresh(line) {
+        this.inputEl.dispatchEvent(new Event("input"));
+        const chooser = this.chooser();
+        const index = chooser?.values?.findIndex((value) => value.heading.line === line) ?? -1;
+        if (index === -1)
+            return;
+        chooser?.setSelectedItem?.(index, null);
+        chooser?.suggestions?.[index]?.scrollIntoView({ block: "nearest" });
+    }
     setPosition(position) {
         if (position === this.position)
             return;
@@ -896,10 +1135,7 @@ class HeadingSwitcherModal extends obsidian.SuggestModal {
     }
     /** Tab: fill the input with the highlighted heading, like the quick switcher. */
     autocomplete() {
-        // `chooser` is SuggestModal's internal list; not public API, so read it defensively.
-        const chooser = this.chooser;
-        const values = chooser?.values ?? [];
-        const selected = values[chooser?.selectedItem ?? 0] ?? values[0];
+        const selected = this.highlighted();
         if (!selected)
             return;
         this.inputEl.value = selected.heading.text;
@@ -944,6 +1180,11 @@ const en = {
         autocomplete: "to autocomplete",
         move: "to move",
         dismiss: "to dismiss",
+        foldMore: "to fold",
+        foldLess: "to unfold",
+        foldAll: "to fold all",
+        unfoldAll: "to unfold all",
+        hiddenSubheadings: "{count} subheadings hidden",
         append: "Append",
         prepend: "Prepend",
         nothingSelected: "Select the text to move first.",
@@ -1019,6 +1260,11 @@ const zhCn = {
         autocomplete: "自动补全",
         move: "移动",
         dismiss: "关闭",
+        foldMore: "折叠",
+        foldLess: "展开",
+        foldAll: "全部折叠",
+        unfoldAll: "全部展开",
+        hiddenSubheadings: "已隐藏 {count} 个子标题",
         append: "追加",
         prepend: "前置",
         nothingSelected: "请先选择要移动的文本。",
@@ -1115,6 +1361,30 @@ function registry(app) {
 function coreCommandName(app, id, fallbackName) {
     const name = registry(app).commands[id]?.name ?? fallbackName;
     return name.replace(/^[^:]+:\s*/u, "");
+}
+/**
+ * The hotkeys currently assigned (in Settings → Hotkeys) to a core command and to V2's wrapper
+ * for it. Reads Obsidian's hotkey manager, which is not public API, so failures give no hotkeys.
+ */
+function assignedHotkeys(plugin, coreId) {
+    const manager = plugin.app.hotkeyManager;
+    if (!manager)
+        return [];
+    const ids = [coreId, `${plugin.manifest.id}:${wrapperId(coreId)}`];
+    const hotkeys = [];
+    for (const id of ids) {
+        try {
+            for (const hotkey of manager.getHotkeys(id) ?? manager.getDefaultHotkeys(id) ?? []) {
+                const parsed = fromObsidianHotkey(hotkey);
+                if (parsed)
+                    hotkeys.push(parsed);
+            }
+        }
+        catch {
+            // Hotkey manager changed shape; carry on without these hotkeys.
+        }
+    }
+    return hotkeys;
 }
 function wrapperId(coreId) {
     return `core-${coreId.replace(/^editor:/u, "")}`;
@@ -3201,6 +3471,12 @@ class QuickExpandSelectionPlugin extends obsidian.Plugin {
             headings,
             position: this.settings.insertPosition,
             toggleHotkey: parseHotkey(this.settings.insertToggleHotkey),
+            foldHotkeys: {
+                foldMore: assignedHotkeys(this, "editor:fold-more"),
+                foldLess: assignedHotkeys(this, "editor:fold-less"),
+                foldAll: assignedHotkeys(this, "editor:fold-all"),
+                unfoldAll: assignedHotkeys(this, "editor:unfold-all")
+            },
             strings,
             onPositionChange: (position) => {
                 this.settings.insertPosition = position;
