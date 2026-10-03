@@ -129,7 +129,6 @@ These features come from Outliner and behave as they do there.
 - A thin line runs down from each bullet that has children, past its last child.
 - Clicking a line runs the **click action**:
   - **Toggle folding** (default): folds every child of that bullet, or unfolds them if they are all folded already.
-  - **Zoom in:** zooms into the bullet. This needs the [Zoom](https://github.com/vslinko/obsidian-zoom) plugin.
   - **None:** the lines are purely visual.
 - While the lines are on, Obsidian's own indentation guides are hidden in lists so the two don't overlap.
 
@@ -172,7 +171,7 @@ Each V2 command simply runs the core command, so nothing is reimplemented. Their
 |---|---|---|
 | Drag-and-drop | On | Drag bullets to move list items with their children. |
 | Draw vertical indentation lines | On | Show lines beside nested bullets. |
-| Vertical indentation line click action | Toggle folding | What clicking a line does: None, Zoom in, or Toggle folding. |
+| Vertical indentation line click action | Toggle folding | What clicking a line does: None or Toggle folding. |
 
 ### Expansion rules
 
@@ -214,7 +213,7 @@ Finer steps between the word and the structural levels, all **off** by default. 
 
 ### From Outliner 4.10.2
 
-Only drag and drop and the vertical indentation lines are included, with Outliner's defaults. V2 does not change Enter, Tab, Backspace, Ctrl/Cmd+A or cursor behaviour in lists, and has none of Outliner's other commands or list styling.
+Only drag and drop and the vertical indentation lines are included, with Outliner's defaults. The line click action offers None and Toggle folding; Outliner's Zoom in option is left out. V2 does not change Enter, Tab, Backspace, Ctrl/Cmd+A or cursor behaviour in lists, and has none of Outliner's other commands or list styling.
 
 ## Known limitations
 

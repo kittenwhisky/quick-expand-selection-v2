@@ -30,11 +30,14 @@ export interface QuickExpandSelectionSettings {
   sentenceMarkers: string;
   dragAndDrop: boolean;
   verticalLines: boolean;
-  verticalLinesAction: VerticalLinesAction;
+  verticalLinesAction: LineClickAction;
   wrapCoreCommands: boolean;
 }
 
-const VERTICAL_LINES_ACTIONS: VerticalLinesAction[] = ["none", "zoom-in", "toggle-folding"];
+// Outliner's "zoom-in" action is not offered (it needs the Zoom plugin); a saved one falls back
+// to the default.
+type LineClickAction = Exclude<VerticalLinesAction, "zoom-in">;
+const VERTICAL_LINES_ACTIONS: LineClickAction[] = ["none", "toggle-folding"];
 
 const DEFAULT_SETTINGS: QuickExpandSelectionSettings = {
   version: SETTINGS_VERSION,
@@ -124,8 +127,8 @@ export default class QuickExpandSelectionPlugin extends Plugin {
       sentenceMarkers: typeof saved?.sentenceMarkers === "string" ? saved.sentenceMarkers : DEFAULT_SENTENCE_MARKERS,
       dragAndDrop: typeof saved?.dragAndDrop === "boolean" ? saved.dragAndDrop : DEFAULT_SETTINGS.dragAndDrop,
       verticalLines: typeof saved?.verticalLines === "boolean" ? saved.verticalLines : DEFAULT_SETTINGS.verticalLines,
-      verticalLinesAction: VERTICAL_LINES_ACTIONS.includes(saved?.verticalLinesAction as VerticalLinesAction)
-        ? saved?.verticalLinesAction as VerticalLinesAction
+      verticalLinesAction: VERTICAL_LINES_ACTIONS.includes(saved?.verticalLinesAction as LineClickAction)
+        ? saved?.verticalLinesAction as LineClickAction
         : DEFAULT_SETTINGS.verticalLinesAction,
       wrapCoreCommands: typeof saved?.wrapCoreCommands === "boolean" ? saved.wrapCoreCommands : DEFAULT_SETTINGS.wrapCoreCommands
     };

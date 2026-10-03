@@ -634,8 +634,8 @@ const en = {
         verticalLines: "Draw vertical indentation lines",
         verticalLinesDescription: "Draw a line from each bullet down past its children.",
         verticalLinesAction: "Vertical indentation line click action",
-        verticalLinesActionDescription: "What clicking a vertical line does. Zoom in needs the Zoom plugin.",
-        verticalLinesActions: { none: "None", "zoom-in": "Zoom in", "toggle-folding": "Toggle folding" }
+        verticalLinesActionDescription: "What clicking a vertical line does.",
+        verticalLinesActions: { none: "None", "toggle-folding": "Toggle folding" }
     },
     notices: {
         expansionHistoryReset: "Expansion history reset."
@@ -684,8 +684,8 @@ const zhCn = {
         verticalLines: "绘制垂直缩进线",
         verticalLinesDescription: "从每个项目符号向下绘制一条贯穿其子项的线。",
         verticalLinesAction: "垂直缩进线点击操作",
-        verticalLinesActionDescription: "点击垂直线时执行的操作。放大需要 Zoom 插件。",
-        verticalLinesActions: { none: "无", "zoom-in": "放大", "toggle-folding": "切换折叠" }
+        verticalLinesActionDescription: "点击垂直线时执行的操作。",
+        verticalLinesActions: { none: "无", "toggle-folding": "切换折叠" }
     },
     notices: {
         expansionHistoryReset: "已重置扩选历史"
@@ -2630,7 +2630,7 @@ class VerticalLines {
 }
 
 const SETTINGS_VERSION = 2;
-const VERTICAL_LINES_ACTIONS = ["none", "zoom-in", "toggle-folding"];
+const VERTICAL_LINES_ACTIONS = ["none", "toggle-folding"];
 const DEFAULT_SETTINGS = {
     version: SETTINGS_VERSION,
     rules: getDefaultSelectionRules(),
