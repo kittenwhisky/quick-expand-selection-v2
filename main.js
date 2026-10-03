@@ -792,7 +792,8 @@ class HeadingSwitcherModal extends obsidian.SuggestModal {
     constructor(app, options) {
         super(app);
         this.options = options;
-        this.toggleButtons = new Map();
+        this.toggle = null;
+        this.positionLabels = new Map();
         this.onKeyDown = (event) => {
             const { toggleHotkey } = this.options;
             if (!toggleHotkey || !matchesHotkey(toggleHotkey, event, obsidian.Platform.isMacOS))
@@ -852,22 +853,30 @@ class HeadingSwitcherModal extends obsidian.SuggestModal {
     onChooseSuggestion({ heading }) {
         this.options.onChoose(heading, this.position);
     }
+    /** "Prepend [toggle] Append (Alt+A)": Obsidian's settings toggle, off (left) = Prepend, on (right) = Append. */
     renderToggle() {
         const { strings, toggleHotkey } = this.options;
         const bar = createDiv({ cls: "qes-move-position" });
         this.inputEl.parentElement?.insertAdjacentElement("afterend", bar);
-        bar.createSpan({ cls: "qes-move-position-label", text: strings.insert });
-        const group = bar.createDiv({ cls: "qes-move-position-toggle" });
-        for (const position of ["prepend", "append"]) {
-            const button = group.createEl("button", { text: position === "append" ? strings.append : strings.prepend });
-            button.addEventListener("click", () => {
+        const label = (position, text) => {
+            const el = bar.createSpan({ cls: "qes-move-position-label", text });
+            el.addEventListener("click", () => {
                 this.setPosition(position);
                 this.inputEl.focus();
             });
-            this.toggleButtons.set(position, button);
-        }
+            this.positionLabels.set(position, el);
+        };
+        label("prepend", strings.prepend);
+        this.toggle = new obsidian.ToggleComponent(bar)
+            .setValue(this.position === "append")
+            .onChange((on) => {
+            this.setPosition(on ? "append" : "prepend");
+            this.inputEl.focus();
+        });
+        this.toggle.toggleEl.setAttribute("aria-label", `${strings.prepend} / ${strings.append}`);
+        label("append", strings.append);
         if (toggleHotkey) {
-            bar.createSpan({ cls: "qes-move-position-hotkey", text: formatHotkey(toggleHotkey, obsidian.Platform.isMacOS) });
+            bar.createSpan({ cls: "qes-move-position-hotkey", text: `(${formatHotkey(toggleHotkey, obsidian.Platform.isMacOS)})` });
         }
         this.updateToggle();
     }
@@ -879,11 +888,11 @@ class HeadingSwitcherModal extends obsidian.SuggestModal {
         this.options.onPositionChange(position);
     }
     updateToggle() {
-        for (const [position, button] of this.toggleButtons) {
-            const active = position === this.position;
-            button.toggleClass("is-active", active);
-            button.setAttribute("aria-pressed", String(active));
+        if (this.toggle && this.toggle.getValue() !== (this.position === "append")) {
+            this.toggle.setValue(this.position === "append");
         }
+        for (const [position, label] of this.positionLabels)
+            label.toggleClass("is-active", position === this.position);
     }
     /** Tab: fill the input with the highlighted heading, like the quick switcher. */
     autocomplete() {
@@ -935,7 +944,6 @@ const en = {
         autocomplete: "to autocomplete",
         move: "to move",
         dismiss: "to dismiss",
-        insert: "Insert:",
         append: "Append",
         prepend: "Prepend",
         nothingSelected: "Select the text to move first.",
@@ -1011,7 +1019,6 @@ const zhCn = {
         autocomplete: "自动补全",
         move: "移动",
         dismiss: "关闭",
-        insert: "插入：",
         append: "追加",
         prepend: "前置",
         nothingSelected: "请先选择要移动的文本。",

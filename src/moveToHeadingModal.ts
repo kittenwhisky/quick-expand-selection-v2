@@ -1,4 +1,4 @@
-import { App, Modal, Platform, SuggestModal, prepareFuzzySearch, renderMatches, type SearchResult } from "obsidian";
+import { App, Modal, Platform, SuggestModal, ToggleComponent, prepareFuzzySearch, renderMatches, type SearchResult } from "obsidian";
 import { formatHotkey, matchesHotkey, type ParsedHotkey } from "./hotkey";
 import type { InsertPosition } from "./moveToHeading";
 import type { HeadingLine } from "./selection";
@@ -21,7 +21,8 @@ export interface HeadingSwitcherOptions {
 /** Quick-switcher-style list of the note's headings, with an Append/Prepend toggle. */
 export class HeadingSwitcherModal extends SuggestModal<HeadingSuggestion> {
   private position: InsertPosition;
-  private readonly toggleButtons = new Map<InsertPosition, HTMLButtonElement>();
+  private toggle: ToggleComponent | null = null;
+  private readonly positionLabels = new Map<InsertPosition, HTMLElement>();
 
   constructor(app: App, private readonly options: HeadingSwitcherOptions) {
     super(app);
@@ -80,22 +81,32 @@ export class HeadingSwitcherModal extends SuggestModal<HeadingSuggestion> {
     this.options.onChoose(heading, this.position);
   }
 
+  /** "Prepend [toggle] Append (Alt+A)": Obsidian's settings toggle, off (left) = Prepend, on (right) = Append. */
   private renderToggle(): void {
     const { strings, toggleHotkey } = this.options;
     const bar = createDiv({ cls: "qes-move-position" });
     this.inputEl.parentElement?.insertAdjacentElement("afterend", bar);
-    bar.createSpan({ cls: "qes-move-position-label", text: strings.insert });
-    const group = bar.createDiv({ cls: "qes-move-position-toggle" });
-    for (const position of ["prepend", "append"] as const) {
-      const button = group.createEl("button", { text: position === "append" ? strings.append : strings.prepend });
-      button.addEventListener("click", () => {
+
+    const label = (position: InsertPosition, text: string): void => {
+      const el = bar.createSpan({ cls: "qes-move-position-label", text });
+      el.addEventListener("click", () => {
         this.setPosition(position);
         this.inputEl.focus();
       });
-      this.toggleButtons.set(position, button);
-    }
+      this.positionLabels.set(position, el);
+    };
+
+    label("prepend", strings.prepend);
+    this.toggle = new ToggleComponent(bar)
+      .setValue(this.position === "append")
+      .onChange((on) => {
+        this.setPosition(on ? "append" : "prepend");
+        this.inputEl.focus();
+      });
+    this.toggle.toggleEl.setAttribute("aria-label", `${strings.prepend} / ${strings.append}`);
+    label("append", strings.append);
     if (toggleHotkey) {
-      bar.createSpan({ cls: "qes-move-position-hotkey", text: formatHotkey(toggleHotkey, Platform.isMacOS) });
+      bar.createSpan({ cls: "qes-move-position-hotkey", text: `(${formatHotkey(toggleHotkey, Platform.isMacOS)})` });
     }
     this.updateToggle();
   }
@@ -116,11 +127,10 @@ export class HeadingSwitcherModal extends SuggestModal<HeadingSuggestion> {
   }
 
   private updateToggle(): void {
-    for (const [position, button] of this.toggleButtons) {
-      const active = position === this.position;
-      button.toggleClass("is-active", active);
-      button.setAttribute("aria-pressed", String(active));
+    if (this.toggle && this.toggle.getValue() !== (this.position === "append")) {
+      this.toggle.setValue(this.position === "append");
     }
+    for (const [position, label] of this.positionLabels) label.toggleClass("is-active", position === this.position);
   }
 
   /** Tab: fill the input with the highlighted heading, like the quick switcher. */

@@ -146,7 +146,7 @@ Indentation goes by level number, so an H3 sits in the H3 column even when the n
 
 ### Append and Prepend
 
-Below the search box, a toggle chooses where the text goes. Its hotkey is shown in grey beside it. Click either side, or press the hotkey.
+Below the search box sits a toggle like the ones in Obsidian's settings: **Prepend [toggle] Append (Alt+A)**. Switched to the left means Prepend, to the right means Append, and the active word is shown brighter. Click the toggle or either word, or press the hotkey shown in brackets.
 
 - **Prepend:** directly below the heading line, above the content already there.
 - **Append:** after the heading's own text, before its first subheading. Blank lines before the subheading stay where they are. If the heading has no text of its own, the text goes directly below the heading.

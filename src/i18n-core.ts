@@ -13,7 +13,6 @@ export interface LocaleStrings {
     autocomplete: string;
     move: string;
     dismiss: string;
-    insert: string;
     append: string;
     prepend: string;
     nothingSelected: string;
@@ -79,7 +78,6 @@ const en: LocaleStrings = {
     autocomplete: "to autocomplete",
     move: "to move",
     dismiss: "to dismiss",
-    insert: "Insert:",
     append: "Append",
     prepend: "Prepend",
     nothingSelected: "Select the text to move first.",
@@ -156,7 +154,6 @@ const zhCn: LocaleStrings = {
     autocomplete: "自动补全",
     move: "移动",
     dismiss: "关闭",
-    insert: "插入：",
     append: "追加",
     prepend: "前置",
     nothingSelected: "请先选择要移动的文本。",
