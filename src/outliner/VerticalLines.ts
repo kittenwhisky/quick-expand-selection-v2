@@ -151,17 +151,9 @@ class VerticalLinesPluginValue implements PluginValue {
       ch: 0,
     });
 
-    let visibleFrom = this.view.visibleRanges[0].from;
-    let visibleTo =
+    const visibleFrom = this.view.visibleRanges[0].from;
+    const visibleTo =
       this.view.visibleRanges[this.view.visibleRanges.length - 1].to;
-    const zoomRange = this.editor.getZoomRange();
-    if (zoomRange) {
-      visibleFrom = Math.max(
-        visibleFrom,
-        this.editor.posToOffset(zoomRange.from),
-      );
-      visibleTo = Math.min(visibleTo, this.editor.posToOffset(zoomRange.to));
-    }
 
     if (fromOffset > visibleTo || tillOffset < visibleFrom) {
       return;
@@ -211,21 +203,11 @@ class VerticalLinesPluginValue implements PluginValue {
     const line = this.lines[Number((e.target as HTMLElement).dataset.index)];
 
     switch (this.settings.verticalLinesAction) {
-      case "zoom-in":
-        this.zoomIn(line);
-        break;
-
       case "toggle-folding":
         this.toggleFolding(line);
         break;
     }
   };
-
-  private zoomIn(line: LineData) {
-    const editor = getEditorFromState(this.view.state);
-
-    editor.zoomIn(line.list.getFirstLineContentStart().line);
-  }
 
   private toggleFolding(line: LineData) {
     const { list } = line;

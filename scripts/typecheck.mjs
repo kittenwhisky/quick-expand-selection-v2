@@ -1,5 +1,5 @@
 // Type-checks V2's own code strictly, and the code adapted from Outliner (src/outliner/) with
-// Outliner's looser settings, so that code can stay identical to upstream.
+// Outliner's looser settings, so that code can stay close to upstream.
 import { spawnSync } from "node:child_process";
 
 function tsc(project) {

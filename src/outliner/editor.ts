@@ -14,11 +14,6 @@ export class MyEditorPosition {
   ch: number;
 }
 
-export class MyEditorRange {
-  from: MyEditorPosition;
-  to: MyEditorPosition;
-}
-
 export class MyEditorSelection {
   anchor: MyEditorPosition;
   head: MyEditorPosition;
@@ -32,17 +27,6 @@ export function getEditorFromState(state: EditorState) {
   }
 
   return new MyEditor(editor);
-}
-
-declare global {
-  interface Window {
-    ObsidianZoomPlugin?: {
-      getZoomRange(e: Editor): MyEditorRange;
-      zoomOut(e: Editor): void;
-      zoomIn(e: Editor, line: number): void;
-      refreshZoom?(e: Editor): void;
-    };
-  }
 }
 
 function foldInside(view: EditorView, from: number, to: number) {
@@ -145,41 +129,5 @@ export class MyEditor {
 
   triggerOnKeyDown(e: KeyboardEvent): void {
     runScopeHandlers(this.view, e, "editor");
-  }
-
-  getZoomRange(): MyEditorRange | null {
-    if (!window.ObsidianZoomPlugin) {
-      return null;
-    }
-
-    return window.ObsidianZoomPlugin.getZoomRange(this.e);
-  }
-
-  zoomOut() {
-    if (!window.ObsidianZoomPlugin) {
-      return;
-    }
-
-    window.ObsidianZoomPlugin.zoomOut(this.e);
-  }
-
-  zoomIn(line: number) {
-    if (!window.ObsidianZoomPlugin) {
-      return;
-    }
-
-    window.ObsidianZoomPlugin.zoomIn(this.e, line);
-  }
-
-  tryRefreshZoom(line: number) {
-    if (!window.ObsidianZoomPlugin) {
-      return;
-    }
-
-    if (window.ObsidianZoomPlugin.refreshZoom) {
-      window.ObsidianZoomPlugin.refreshZoom(this.e);
-    } else {
-      window.ObsidianZoomPlugin.zoomIn(this.e, line);
-    }
   }
 }

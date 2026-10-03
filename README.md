@@ -249,7 +249,7 @@ Layout:
 | `styles.css` | Styles for the lines and drag and drop |
 | `tests/` | `node:test` tests for the expansion logic and locales |
 
-**Type-checking:** V2's own code is checked with `strict`. The code in `src/outliner/` is checked with Outliner's own, looser settings (`tsconfig.outliner.json`), so it can stay identical to upstream and later Outliner fixes can be copied in directly. `scripts/typecheck.mjs` runs both checks.
+**Type-checking:** V2's own code is checked with `strict`. The code in `src/outliner/` is checked with Outliner's own, looser settings (`tsconfig.outliner.json`), so it can stay close to upstream and later Outliner fixes are easy to merge. The only change from Outliner's code, apart from import paths and settings wiring, is that support for the Zoom plugin has been removed (from `editor.ts`, `VerticalLines.ts` and `Settings.ts`). `scripts/typecheck.mjs` runs both checks.
 
 `@codemirror/*` and `obsidian` are external in the bundle. Obsidian provides them at runtime, and bundling a second copy of CodeMirror would break the editor extensions.
 

@@ -1559,35 +1559,6 @@ class MyEditor {
     triggerOnKeyDown(e) {
         view.runScopeHandlers(this.view, e, "editor");
     }
-    getZoomRange() {
-        if (!window.ObsidianZoomPlugin) {
-            return null;
-        }
-        return window.ObsidianZoomPlugin.getZoomRange(this.e);
-    }
-    zoomOut() {
-        if (!window.ObsidianZoomPlugin) {
-            return;
-        }
-        window.ObsidianZoomPlugin.zoomOut(this.e);
-    }
-    zoomIn(line) {
-        if (!window.ObsidianZoomPlugin) {
-            return;
-        }
-        window.ObsidianZoomPlugin.zoomIn(this.e, line);
-    }
-    tryRefreshZoom(line) {
-        if (!window.ObsidianZoomPlugin) {
-            return;
-        }
-        if (window.ObsidianZoomPlugin.refreshZoom) {
-            window.ObsidianZoomPlugin.refreshZoom(this.e);
-        }
-        else {
-            window.ObsidianZoomPlugin.zoomIn(this.e, line);
-        }
-    }
 }
 
 class MoveListToDifferentPosition {
@@ -2419,9 +2390,6 @@ class VerticalLinesPluginValue {
             e.preventDefault();
             const line = this.lines[Number(e.target.dataset.index)];
             switch (this.settings.verticalLinesAction) {
-                case "zoom-in":
-                    this.zoomIn(line);
-                    break;
                 case "toggle-folding":
                     this.toggleFolding(line);
                     break;
@@ -2477,13 +2445,8 @@ class VerticalLinesPluginValue {
                 : this.lastLine,
             ch: 0,
         });
-        let visibleFrom = this.view.visibleRanges[0].from;
-        let visibleTo = this.view.visibleRanges[this.view.visibleRanges.length - 1].to;
-        const zoomRange = this.editor.getZoomRange();
-        if (zoomRange) {
-            visibleFrom = Math.max(visibleFrom, this.editor.posToOffset(zoomRange.from));
-            visibleTo = Math.min(visibleTo, this.editor.posToOffset(zoomRange.to));
-        }
+        const visibleFrom = this.view.visibleRanges[0].from;
+        const visibleTo = this.view.visibleRanges[this.view.visibleRanges.length - 1].to;
         if (fromOffset > visibleTo || tillOffset < visibleFrom) {
             return;
         }
@@ -2516,10 +2479,6 @@ class VerticalLinesPluginValue {
                 this.recursive(child, parentCtx);
             }
         }
-    }
-    zoomIn(line) {
-        const editor = getEditorFromState(this.view.state);
-        editor.zoomIn(line.list.getFirstLineContentStart().line);
     }
     toggleFolding(line) {
         const { list } = line;
@@ -2630,6 +2589,7 @@ class VerticalLines {
 }
 
 const SETTINGS_VERSION = 2;
+// A value no longer offered (Outliner's "zoom-in") falls back to the default when loaded.
 const VERTICAL_LINES_ACTIONS = ["none", "toggle-folding"];
 const DEFAULT_SETTINGS = {
     version: SETTINGS_VERSION,

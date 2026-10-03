@@ -1,5 +1,5 @@
 // Replaces Outliner's Settings service: only the values the vendored features read.
-export type VerticalLinesAction = "none" | "zoom-in" | "toggle-folding";
+export type VerticalLinesAction = "none" | "toggle-folding";
 
 export interface Settings {
   readonly dragAndDrop: boolean;
