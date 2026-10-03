@@ -843,7 +843,8 @@ class HeadingSwitcherModal extends obsidian.SuggestModal {
     }
     renderSuggestion({ heading, match }, el) {
         el.addClass("qes-heading-suggestion");
-        el.createSpan({ cls: "qes-heading-level", text: "#".repeat(heading.level) });
+        // Indented by level in styles.css, so each heading's #s line up with the text of the level above.
+        el.createSpan({ cls: "qes-heading-level", text: "#".repeat(heading.level), attr: { "data-level": String(heading.level) } });
         // Long headings are cut off with "…" by CSS; hovering shows the full text.
         const textEl = el.createSpan({ cls: "qes-heading-text", attr: { title: heading.text } });
         obsidian.renderMatches(textEl, heading.text, match?.matches ?? null);

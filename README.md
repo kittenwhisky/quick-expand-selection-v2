@@ -121,7 +121,16 @@ Run it from the command palette, or right-click selected text and choose **Move 
 
 ### The heading list
 
-A window like the quick switcher lists every heading in the note, in the order they appear. Each heading shows its level as `#`, `##`, `###` and so on, in grey to its left.
+A window like the quick switcher lists every heading in the note, in the order they appear. Each heading shows its level as `#`, `##`, `###` and so on, in grey to its left, and is indented by level so its `#`s start where the text of the level above starts:
+
+```
+# Project
+  ## Tasks
+     ### Today
+  ## Notes
+```
+
+Indentation goes by level number, so an H3 sits in the H3 column even when the note has no H2 above it, and headings keep their indentation while the list is filtered. The highlighted heading has a tinted background and an accent bar on its left.
 
 | Key | Action |
 |---|---|
@@ -152,7 +161,7 @@ The toggle remembers your last choice, starting with Append.
 
 Afterwards the cursor stays where the text was removed, or, if you choose **Follow the moved text** in the settings, the moved text is selected at its new place.
 
-The move is a single edit, so one undo puts everything back. If the note changes while the heading list is open (for example a sync), nothing moves and a notice says so.
+The move is a single edit: **Ctrl/Cmd+Z** undoes it in one step and **Ctrl+Y** (Cmd+Shift+Z on macOS) redoes it. If the note changes while the heading list is open (for example a sync), nothing moves and a notice says so.
 
 ## Lists: drag and drop and indentation lines
 

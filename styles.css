@@ -91,15 +91,37 @@ html body.qes-outliner-dnd.qes-outliner-dragging {
 .qes-heading-suggestion {
   display: flex;
   align-items: baseline;
-  gap: 0.5em;
   min-width: 0;
 }
 
+/* The highlighted heading while moving through the list with the arrow keys. */
+.qes-heading-switcher .suggestion-item.qes-heading-suggestion.is-selected {
+  background-color: var(--background-modifier-active-hover);
+  box-shadow: inset 3px 0 0 var(--interactive-accent);
+  color: var(--text-normal);
+}
+
+.qes-heading-switcher .suggestion-item.qes-heading-suggestion.is-selected .qes-heading-level {
+  color: var(--text-accent);
+}
+
+/*
+ * Indentation by level: each level's #s start where the text of the level above starts.
+ * A level-k marker is k characters wide plus a 1-character gap (in the monospace font, so `ch`
+ * is exact), so level L starts at the sum over k < L of (k + 1) characters: 0, 2, 5, 9, 14, 20.
+ */
 .qes-heading-level {
   flex: none;
+  margin-right: 1ch;
   color: var(--text-faint);
   font-family: var(--font-monospace);
 }
+
+.qes-heading-level[data-level="2"] { margin-left: 2ch; }
+.qes-heading-level[data-level="3"] { margin-left: 5ch; }
+.qes-heading-level[data-level="4"] { margin-left: 9ch; }
+.qes-heading-level[data-level="5"] { margin-left: 14ch; }
+.qes-heading-level[data-level="6"] { margin-left: 20ch; }
 
 .qes-heading-text {
   flex: 1 1 auto;
