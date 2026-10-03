@@ -721,6 +721,7 @@ function getDefaultSelectionRules() {
 }
 
 const DEFAULT_INSERT_TOGGLE_HOTKEY = "Alt+A";
+const DEFAULT_FOLLOW_TOGGLE_HOTKEY = "Alt+F";
 function getLines(text) {
     const lines = [];
     let start = 0;
@@ -929,13 +930,66 @@ function visibleAncestor(headings, folded, line) {
 }
 
 const FOLD_ACTIONS = ["foldMore", "foldLess", "foldAll", "unfoldAll"];
-/** Quick-switcher-style list of the note's headings, with an Append/Prepend toggle. */
+/**
+ * "Left [toggle] Right (hotkey)": Obsidian's settings toggle with a clickable word on each side;
+ * off (left) is the first value, on (right) the second. The active word is emphasised.
+ */
+class SideSwitch {
+    constructor(containerEl, sides, texts, hotkey, value, onChange, afterClick) {
+        this.sides = sides;
+        this.value = value;
+        this.onChange = onChange;
+        this.labels = new Map();
+        const el = containerEl.createDiv({ cls: "qes-move-switch" });
+        const label = (side, text) => {
+            const labelEl = el.createSpan({ cls: "qes-move-position-label", text });
+            labelEl.addEventListener("click", () => {
+                this.set(side);
+                afterClick();
+            });
+            this.labels.set(side, labelEl);
+        };
+        label(sides[0], texts[0]);
+        this.toggle = new obsidian.ToggleComponent(el).setValue(value === sides[1]).onChange((on) => {
+            this.set(on ? sides[1] : sides[0]);
+            afterClick();
+        });
+        this.toggle.toggleEl.setAttribute("aria-label", `${texts[0]} / ${texts[1]}`);
+        label(sides[1], texts[1]);
+        if (hotkey)
+            el.createSpan({ cls: "qes-move-position-hotkey", text: `(${formatHotkey(hotkey, obsidian.Platform.isMacOS)})` });
+        this.render();
+    }
+    get() {
+        return this.value;
+    }
+    flip() {
+        this.set(this.value === this.sides[0] ? this.sides[1] : this.sides[0]);
+    }
+    set(value) {
+        if (value === this.value)
+            return;
+        this.value = value;
+        this.render();
+        this.onChange(value);
+    }
+    render() {
+        const on = this.value === this.sides[1];
+        if (this.toggle.getValue() !== on)
+            this.toggle.setValue(on);
+        for (const [side, labelEl] of this.labels)
+            labelEl.toggleClass("is-active", side === this.value);
+    }
+}
+/**
+ * Quick-switcher-style list of the note's headings, with Prepend/Append and Stay/Follow toggles.
+ */
 class HeadingSwitcherModal extends obsidian.SuggestModal {
     constructor(app, options) {
         super(app);
         this.options = options;
-        this.toggle = null;
-        this.positionLabels = new Map();
+        this.positionSwitch = null;
+        this.cursorSwitch = null;
         /** Lines of the headings whose subheadings are hidden. The list opens fully unfolded. */
         this.folded = new Set();
         /** Key presses already acted on, so the scope handler and the DOM fallback never both act. */
@@ -944,16 +998,19 @@ class HeadingSwitcherModal extends obsidian.SuggestModal {
         this.onKeyDown = (event) => {
             if (this.handledKeys.has(event))
                 return;
-            const { toggleHotkey, foldHotkeys } = this.options;
+            const { toggleHotkey, followHotkey, foldHotkeys } = this.options;
             if (toggleHotkey && matchesHotkey(toggleHotkey, event, obsidian.Platform.isMacOS)) {
-                this.handleKey(event, () => this.flipPosition());
+                this.handleKey(event, () => this.positionSwitch?.flip());
+                return;
+            }
+            if (followHotkey && matchesHotkey(followHotkey, event, obsidian.Platform.isMacOS)) {
+                this.handleKey(event, () => this.cursorSwitch?.flip());
                 return;
             }
             const action = FOLD_ACTIONS.find((candidate) => foldHotkeys[candidate].some((hotkey) => matchesHotkey(hotkey, event, obsidian.Platform.isMacOS)));
             if (action)
                 this.handleKey(event, () => this.fold(action));
         };
-        this.position = options.position;
         const { strings } = options;
         this.setPlaceholder(strings.placeholder);
         this.emptyStateText = strings.noMatch;
@@ -977,7 +1034,9 @@ class HeadingSwitcherModal extends obsidian.SuggestModal {
         // run e.g. the app-wide Fold more on the note behind. Registering in the modal's own scope
         // takes precedence while it is open, with Obsidian's own key matching.
         if (options.toggleHotkey)
-            this.registerKey(options.toggleHotkey, () => this.flipPosition());
+            this.registerKey(options.toggleHotkey, () => this.positionSwitch?.flip());
+        if (options.followHotkey)
+            this.registerKey(options.followHotkey, () => this.cursorSwitch?.flip());
         for (const action of FOLD_ACTIONS) {
             for (const hotkey of options.foldHotkeys[action])
                 this.registerKey(hotkey, () => this.fold(action));
@@ -1001,7 +1060,7 @@ class HeadingSwitcherModal extends obsidian.SuggestModal {
     }
     onOpen() {
         void super.onOpen();
-        this.renderToggle();
+        this.renderToggles();
         this.modalEl.addEventListener("keydown", this.onKeyDown, true);
     }
     onClose() {
@@ -1043,37 +1102,17 @@ class HeadingSwitcherModal extends obsidian.SuggestModal {
         }
     }
     onChooseSuggestion({ heading }) {
-        this.options.onChoose(heading, this.position);
+        this.options.onChoose(heading, this.positionSwitch?.get() ?? this.options.position, this.cursorSwitch?.get() ?? this.options.cursorAfterMove);
     }
-    /** "Prepend [toggle] Append (Alt+A)": Obsidian's settings toggle, off (left) = Prepend, on (right) = Append. */
-    renderToggle() {
-        const { strings, toggleHotkey } = this.options;
+    /** One bar under the search box: "Prepend [toggle] Append (Alt+A)   Stay [toggle] Follow (Alt+F)". */
+    renderToggles() {
+        const { options } = this;
+        const { strings } = options;
         const bar = createDiv({ cls: "qes-move-position" });
         this.inputEl.parentElement?.insertAdjacentElement("afterend", bar);
-        const label = (position, text) => {
-            const el = bar.createSpan({ cls: "qes-move-position-label", text });
-            el.addEventListener("click", () => {
-                this.setPosition(position);
-                this.inputEl.focus();
-            });
-            this.positionLabels.set(position, el);
-        };
-        label("prepend", strings.prepend);
-        this.toggle = new obsidian.ToggleComponent(bar)
-            .setValue(this.position === "append")
-            .onChange((on) => {
-            this.setPosition(on ? "append" : "prepend");
-            this.inputEl.focus();
-        });
-        this.toggle.toggleEl.setAttribute("aria-label", `${strings.prepend} / ${strings.append}`);
-        label("append", strings.append);
-        if (toggleHotkey) {
-            bar.createSpan({ cls: "qes-move-position-hotkey", text: `(${formatHotkey(toggleHotkey, obsidian.Platform.isMacOS)})` });
-        }
-        this.updateToggle();
-    }
-    flipPosition() {
-        this.setPosition(this.position === "append" ? "prepend" : "append");
+        const refocus = () => this.inputEl.focus();
+        this.positionSwitch = new SideSwitch(bar, ["prepend", "append"], [strings.prepend, strings.append], options.toggleHotkey, options.position, (position) => options.onPositionChange(position), refocus);
+        this.cursorSwitch = new SideSwitch(bar, ["stay", "follow"], [strings.stay, strings.follow], options.followHotkey, options.cursorAfterMove, (cursor) => options.onCursorChange(cursor), refocus);
     }
     /** Folding acts on the highlighted heading, and only while the search box is empty. */
     fold(action) {
@@ -1100,38 +1139,25 @@ class HeadingSwitcherModal extends obsidian.SuggestModal {
         }
         this.refresh(visibleAncestor(headings, this.folded, highlight));
     }
-    chooser() {
+    // Named getChooser: SuggestModal already has a `chooser` property, which would hide a method of that name.
+    getChooser() {
         // `chooser` is SuggestModal's internal list; not public API, so read it defensively.
         return this.chooser;
     }
     highlighted() {
-        const chooser = this.chooser();
+        const chooser = this.getChooser();
         const values = chooser?.values ?? [];
         return values[chooser?.selectedItem ?? 0] ?? values[0];
     }
     /** Re-renders the list and keeps the highlight on the heading at `line`. */
     refresh(line) {
         this.inputEl.dispatchEvent(new Event("input"));
-        const chooser = this.chooser();
+        const chooser = this.getChooser();
         const index = chooser?.values?.findIndex((value) => value.heading.line === line) ?? -1;
         if (index === -1)
             return;
         chooser?.setSelectedItem?.(index, null);
         chooser?.suggestions?.[index]?.scrollIntoView({ block: "nearest" });
-    }
-    setPosition(position) {
-        if (position === this.position)
-            return;
-        this.position = position;
-        this.updateToggle();
-        this.options.onPositionChange(position);
-    }
-    updateToggle() {
-        if (this.toggle && this.toggle.getValue() !== (this.position === "append")) {
-            this.toggle.setValue(this.position === "append");
-        }
-        for (const [position, label] of this.positionLabels)
-            label.toggleClass("is-active", position === this.position);
     }
     /** Tab: fill the input with the highlighted heading, like the quick switcher. */
     autocomplete() {
@@ -1198,9 +1224,10 @@ const en = {
         toggleHotkey: "Append/Prepend toggle hotkey",
         toggleHotkeyDescription: "Switches between Append and Prepend while the heading list is open, e.g. Alt+A or Mod+Shift+P (Mod is Ctrl, or Cmd on macOS). The list remembers your last choice.",
         toggleHotkeyInvalid: "Use modifiers plus one key, e.g. Alt+A.",
-        cursorAfterMove: "Cursor after moving",
-        cursorAfterMoveDescription: "Where the cursor goes once the text has moved.",
-        cursorOptions: { stay: "Stay where it was", follow: "Follow the moved text" }
+        stay: "Stay",
+        follow: "Follow",
+        followHotkey: "Stay/Follow toggle hotkey",
+        followHotkeyDescription: "Switches between Stay (the cursor stays where the text was) and Follow (the moved text is selected at its new place) while the heading list is open. The list remembers your last choice."
     },
     rules: {
         list: { name: "List hierarchy", description: "In a list, expand through the bullet line, the bullet with its children, each parent bullet with its children, then the whole list." },
@@ -1278,9 +1305,10 @@ const zhCn = {
         toggleHotkey: "追加/前置切换快捷键",
         toggleHotkeyDescription: "在标题列表打开时切换追加和前置，例如 Alt+A 或 Mod+Shift+P（Mod 为 Ctrl，macOS 上为 Cmd）。列表会记住你上次的选择。",
         toggleHotkeyInvalid: "请使用修饰键加一个按键，例如 Alt+A。",
-        cursorAfterMove: "移动后的光标位置",
-        cursorAfterMoveDescription: "文本移动后光标所在的位置。",
-        cursorOptions: { stay: "保持原位", follow: "跟随移动的文本" }
+        stay: "保持",
+        follow: "跟随",
+        followHotkey: "保持/跟随切换快捷键",
+        followHotkeyDescription: "在标题列表打开时切换保持（光标留在文本原来的位置）和跟随（在新位置选中移动后的文本）。列表会记住你上次的选择。"
     },
     rules: {
         list: { name: "列表层级", description: "在列表中依次扩选当前行、当前项及其子项、各级父项及其子项，最后是整个列表。" },
@@ -1447,9 +1475,15 @@ class QuickExpandSelectionSettingTab extends obsidian.PluginSettingTab {
                         }
                     },
                     {
-                        name: move.cursorAfterMove,
-                        desc: move.cursorAfterMoveDescription,
-                        control: { type: "dropdown", key: "cursorAfterMove", defaultValue: "stay", options: move.cursorOptions }
+                        name: move.followHotkey,
+                        desc: move.followHotkeyDescription,
+                        control: {
+                            type: "text",
+                            key: "followToggleHotkey",
+                            defaultValue: DEFAULT_FOLLOW_TOGGLE_HOTKEY,
+                            placeholder: DEFAULT_FOLLOW_TOGGLE_HOTKEY,
+                            validate: (value) => (parseHotkey(value) ? undefined : move.toggleHotkeyInvalid)
+                        }
                     }
                 ]
             },
@@ -1538,8 +1572,8 @@ class QuickExpandSelectionSettingTab extends obsidian.PluginSettingTab {
             return this.plugin.settings.wrapCoreCommands;
         if (key === "insertToggleHotkey")
             return this.plugin.settings.insertToggleHotkey;
-        if (key === "cursorAfterMove")
-            return this.plugin.settings.cursorAfterMove;
+        if (key === "followToggleHotkey")
+            return this.plugin.settings.followToggleHotkey;
         if (this.isListKey(key))
             return this.plugin.settings[key];
         if (key === SENTENCE_MARKERS_KEY)
@@ -1548,17 +1582,10 @@ class QuickExpandSelectionSettingTab extends obsidian.PluginSettingTab {
         return rule ? this.plugin.settings.rules[rule] : undefined;
     }
     async setControlValue(key, value) {
-        if (key === "insertToggleHotkey") {
+        if (key === "insertToggleHotkey" || key === "followToggleHotkey") {
             if (typeof value !== "string" || !parseHotkey(value))
                 return;
-            this.plugin.settings.insertToggleHotkey = value;
-            await this.plugin.saveSettings();
-            return;
-        }
-        if (key === "cursorAfterMove") {
-            if (value !== "stay" && value !== "follow")
-                return;
-            this.plugin.settings.cursorAfterMove = value;
+            this.plugin.settings[key] = value;
             await this.plugin.saveSettings();
             return;
         }
@@ -1613,14 +1640,16 @@ class QuickExpandSelectionSettingTab extends obsidian.PluginSettingTab {
             });
         });
         new obsidian.Setting(containerEl)
-            .setName(move.cursorAfterMove)
-            .setDesc(move.cursorAfterMoveDescription)
-            .addDropdown((dropdown) => {
-            dropdown
-                .addOptions(move.cursorOptions)
-                .setValue(this.plugin.settings.cursorAfterMove)
+            .setName(move.followHotkey)
+            .setDesc(move.followHotkeyDescription)
+            .addText((text) => {
+            text
+                .setPlaceholder(DEFAULT_FOLLOW_TOGGLE_HOTKEY)
+                .setValue(this.plugin.settings.followToggleHotkey)
                 .onChange(async (value) => {
-                this.plugin.settings.cursorAfterMove = value;
+                if (!parseHotkey(value))
+                    return;
+                this.plugin.settings.followToggleHotkey = value;
                 await this.plugin.saveSettings();
             });
         });
@@ -3330,7 +3359,8 @@ const DEFAULT_SETTINGS = {
     wrapCoreCommands: true,
     insertPosition: "append",
     insertToggleHotkey: DEFAULT_INSERT_TOGGLE_HOTKEY,
-    cursorAfterMove: "stay"
+    cursorAfterMove: "stay",
+    followToggleHotkey: DEFAULT_FOLLOW_TOGGLE_HOTKEY
 };
 // Rules whose meaning changed in V2 (they became opt-in fine-grained steps), so values saved by
 // the original plugin are not carried over.
@@ -3434,7 +3464,10 @@ class QuickExpandSelectionPlugin extends obsidian.Plugin {
             insertToggleHotkey: typeof saved?.insertToggleHotkey === "string" && parseHotkey(saved.insertToggleHotkey)
                 ? saved.insertToggleHotkey
                 : DEFAULT_INSERT_TOGGLE_HOTKEY,
-            cursorAfterMove: saved?.cursorAfterMove === "follow" ? "follow" : "stay"
+            cursorAfterMove: saved?.cursorAfterMove === "follow" ? "follow" : "stay",
+            followToggleHotkey: typeof saved?.followToggleHotkey === "string" && parseHotkey(saved.followToggleHotkey)
+                ? saved.followToggleHotkey
+                : DEFAULT_FOLLOW_TOGGLE_HOTKEY
         };
     }
     async saveSettings() {
@@ -3471,6 +3504,8 @@ class QuickExpandSelectionPlugin extends obsidian.Plugin {
             headings,
             position: this.settings.insertPosition,
             toggleHotkey: parseHotkey(this.settings.insertToggleHotkey),
+            cursorAfterMove: this.settings.cursorAfterMove,
+            followHotkey: parseHotkey(this.settings.followToggleHotkey),
             foldHotkeys: {
                 foldMore: assignedHotkeys(this, "editor:fold-more"),
                 foldLess: assignedHotkeys(this, "editor:fold-less"),
@@ -3482,7 +3517,11 @@ class QuickExpandSelectionPlugin extends obsidian.Plugin {
                 this.settings.insertPosition = position;
                 void this.saveSettings();
             },
-            onChoose: (heading, position) => {
+            onCursorChange: (cursor) => {
+                this.settings.cursorAfterMove = cursor;
+                void this.saveSettings();
+            },
+            onChoose: (heading, position, cursor) => {
                 if (editor.getValue() !== text) {
                     new obsidian.Notice(strings.noteChanged);
                     return;
@@ -3497,7 +3536,7 @@ class QuickExpandSelectionPlugin extends obsidian.Plugin {
                         text: change.insert
                     }))
                 });
-                if (this.settings.cursorAfterMove === "follow") {
+                if (cursor === "follow") {
                     const from = editor.offsetToPos(plan.moved.from);
                     const to = editor.offsetToPos(plan.moved.to);
                     editor.setSelection(from, to);

@@ -3,6 +3,7 @@ import { listHeadings, type HeadingLine, type TextRange } from "./selection";
 export type InsertPosition = "append" | "prepend";
 export type CursorAfterMove = "stay" | "follow";
 export const DEFAULT_INSERT_TOGGLE_HOTKEY = "Alt+A";
+export const DEFAULT_FOLLOW_TOGGLE_HOTKEY = "Alt+F";
 
 export interface TextChange {
   from: number;

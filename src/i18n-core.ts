@@ -31,9 +31,10 @@ export interface LocaleStrings {
     toggleHotkey: string;
     toggleHotkeyDescription: string;
     toggleHotkeyInvalid: string;
-    cursorAfterMove: string;
-    cursorAfterMoveDescription: string;
-    cursorOptions: Record<"stay" | "follow", string>;
+    stay: string;
+    follow: string;
+    followHotkey: string;
+    followHotkeyDescription: string;
   };
   rules: Record<keyof SelectionRules, { name: string; description: string }>;
   settings: {
@@ -101,9 +102,10 @@ const en: LocaleStrings = {
     toggleHotkey: "Append/Prepend toggle hotkey",
     toggleHotkeyDescription: "Switches between Append and Prepend while the heading list is open, e.g. Alt+A or Mod+Shift+P (Mod is Ctrl, or Cmd on macOS). The list remembers your last choice.",
     toggleHotkeyInvalid: "Use modifiers plus one key, e.g. Alt+A.",
-    cursorAfterMove: "Cursor after moving",
-    cursorAfterMoveDescription: "Where the cursor goes once the text has moved.",
-    cursorOptions: { stay: "Stay where it was", follow: "Follow the moved text" }
+    stay: "Stay",
+    follow: "Follow",
+    followHotkey: "Stay/Follow toggle hotkey",
+    followHotkeyDescription: "Switches between Stay (the cursor stays where the text was) and Follow (the moved text is selected at its new place) while the heading list is open. The list remembers your last choice."
   },
   rules: {
     list: { name: "List hierarchy", description: "In a list, expand through the bullet line, the bullet with its children, each parent bullet with its children, then the whole list." },
@@ -182,9 +184,10 @@ const zhCn: LocaleStrings = {
     toggleHotkey: "追加/前置切换快捷键",
     toggleHotkeyDescription: "在标题列表打开时切换追加和前置，例如 Alt+A 或 Mod+Shift+P（Mod 为 Ctrl，macOS 上为 Cmd）。列表会记住你上次的选择。",
     toggleHotkeyInvalid: "请使用修饰键加一个按键，例如 Alt+A。",
-    cursorAfterMove: "移动后的光标位置",
-    cursorAfterMoveDescription: "文本移动后光标所在的位置。",
-    cursorOptions: { stay: "保持原位", follow: "跟随移动的文本" }
+    stay: "保持",
+    follow: "跟随",
+    followHotkey: "保持/跟随切换快捷键",
+    followHotkeyDescription: "在标题列表打开时切换保持（光标留在文本原来的位置）和跟随（在新位置选中移动后的文本）。列表会记住你上次的选择。"
   },
   rules: {
     list: { name: "列表层级", description: "在列表中依次扩选当前行、当前项及其子项、各级父项及其子项，最后是整个列表。" },

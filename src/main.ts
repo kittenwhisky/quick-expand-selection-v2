@@ -3,6 +3,7 @@ import { keymap } from "@codemirror/view";
 import { Editor, MarkdownView, Notice, Plugin, editorInfoField } from "obsidian";
 import { parseHotkey } from "./hotkey";
 import {
+  DEFAULT_FOLLOW_TOGGLE_HOTKEY,
   DEFAULT_INSERT_TOGGLE_HOTKEY,
   isWholeLineSelection,
   movableTargets,
@@ -47,7 +48,9 @@ export interface QuickExpandSelectionSettings {
   /** The heading switcher's Append/Prepend toggle, remembered between uses. */
   insertPosition: InsertPosition;
   insertToggleHotkey: string;
+  /** The heading switcher's Stay/Follow toggle, remembered between uses. */
   cursorAfterMove: CursorAfterMove;
+  followToggleHotkey: string;
 }
 
 
@@ -64,7 +67,8 @@ const DEFAULT_SETTINGS: QuickExpandSelectionSettings = {
   wrapCoreCommands: true,
   insertPosition: "append",
   insertToggleHotkey: DEFAULT_INSERT_TOGGLE_HOTKEY,
-  cursorAfterMove: "stay"
+  cursorAfterMove: "stay",
+  followToggleHotkey: DEFAULT_FOLLOW_TOGGLE_HOTKEY
 };
 
 // Rules whose meaning changed in V2 (they became opt-in fine-grained steps), so values saved by
@@ -176,7 +180,10 @@ export default class QuickExpandSelectionPlugin extends Plugin {
       insertToggleHotkey: typeof saved?.insertToggleHotkey === "string" && parseHotkey(saved.insertToggleHotkey)
         ? saved.insertToggleHotkey
         : DEFAULT_INSERT_TOGGLE_HOTKEY,
-      cursorAfterMove: saved?.cursorAfterMove === "follow" ? "follow" : "stay"
+      cursorAfterMove: saved?.cursorAfterMove === "follow" ? "follow" : "stay",
+      followToggleHotkey: typeof saved?.followToggleHotkey === "string" && parseHotkey(saved.followToggleHotkey)
+        ? saved.followToggleHotkey
+        : DEFAULT_FOLLOW_TOGGLE_HOTKEY
     };
   }
 
@@ -212,6 +219,8 @@ export default class QuickExpandSelectionPlugin extends Plugin {
       headings,
       position: this.settings.insertPosition,
       toggleHotkey: parseHotkey(this.settings.insertToggleHotkey),
+      cursorAfterMove: this.settings.cursorAfterMove,
+      followHotkey: parseHotkey(this.settings.followToggleHotkey),
       foldHotkeys: {
         foldMore: assignedHotkeys(this, "editor:fold-more"),
         foldLess: assignedHotkeys(this, "editor:fold-less"),
@@ -223,7 +232,11 @@ export default class QuickExpandSelectionPlugin extends Plugin {
         this.settings.insertPosition = position;
         void this.saveSettings();
       },
-      onChoose: (heading, position) => {
+      onCursorChange: (cursor) => {
+        this.settings.cursorAfterMove = cursor;
+        void this.saveSettings();
+      },
+      onChoose: (heading, position, cursor) => {
         if (editor.getValue() !== text) {
           new Notice(strings.noteChanged);
           return;
@@ -237,7 +250,7 @@ export default class QuickExpandSelectionPlugin extends Plugin {
             text: change.insert
           }))
         });
-        if (this.settings.cursorAfterMove === "follow") {
+        if (cursor === "follow") {
           const from = editor.offsetToPos(plan.moved.from);
           const to = editor.offsetToPos(plan.moved.to);
           editor.setSelection(from, to);

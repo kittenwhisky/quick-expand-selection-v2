@@ -4,7 +4,7 @@ import { DEFAULT_SENTENCE_MARKERS, getDefaultSelectionRules, type SelectionRules
 import { getLocaleStrings } from "./i18n";
 import { WRAPPED_CORE_COMMANDS, coreCommandName } from "./coreCommands";
 import { parseHotkey } from "./hotkey";
-import { DEFAULT_INSERT_TOGGLE_HOTKEY, type CursorAfterMove } from "./moveToHeading";
+import { DEFAULT_FOLLOW_TOGGLE_HOTKEY, DEFAULT_INSERT_TOGGLE_HOTKEY } from "./moveToHeading";
 
 const STRUCTURE_RULES: Array<keyof SelectionRules> = ["list", "heading", "sentence", "code", "latex"];
 const EXTRA_STEP_RULES: Array<keyof SelectionRules> = ["whitespace", "punctuation", "pairs", "token", "line"];
@@ -50,9 +50,15 @@ export class QuickExpandSelectionSettingTab extends PluginSettingTab {
             }
           },
           {
-            name: move.cursorAfterMove,
-            desc: move.cursorAfterMoveDescription,
-            control: { type: "dropdown" as const, key: "cursorAfterMove", defaultValue: "stay", options: move.cursorOptions }
+            name: move.followHotkey,
+            desc: move.followHotkeyDescription,
+            control: {
+              type: "text" as const,
+              key: "followToggleHotkey",
+              defaultValue: DEFAULT_FOLLOW_TOGGLE_HOTKEY,
+              placeholder: DEFAULT_FOLLOW_TOGGLE_HOTKEY,
+              validate: (value: string) => (parseHotkey(value) ? undefined : move.toggleHotkeyInvalid)
+            }
           }
         ]
       },
@@ -140,7 +146,7 @@ export class QuickExpandSelectionSettingTab extends PluginSettingTab {
   override getControlValue(key: string): unknown {
     if (key === "wrapCoreCommands") return this.plugin.settings.wrapCoreCommands;
     if (key === "insertToggleHotkey") return this.plugin.settings.insertToggleHotkey;
-    if (key === "cursorAfterMove") return this.plugin.settings.cursorAfterMove;
+    if (key === "followToggleHotkey") return this.plugin.settings.followToggleHotkey;
     if (this.isListKey(key)) return this.plugin.settings[key];
     if (key === SENTENCE_MARKERS_KEY) return this.plugin.settings.sentenceMarkers;
     const rule = this.getRuleKey(key);
@@ -148,15 +154,9 @@ export class QuickExpandSelectionSettingTab extends PluginSettingTab {
   }
 
   override async setControlValue(key: string, value: unknown): Promise<void> {
-    if (key === "insertToggleHotkey") {
+    if (key === "insertToggleHotkey" || key === "followToggleHotkey") {
       if (typeof value !== "string" || !parseHotkey(value)) return;
-      this.plugin.settings.insertToggleHotkey = value;
-      await this.plugin.saveSettings();
-      return;
-    }
-    if (key === "cursorAfterMove") {
-      if (value !== "stay" && value !== "follow") return;
-      this.plugin.settings.cursorAfterMove = value;
+      this.plugin.settings[key] = value;
       await this.plugin.saveSettings();
       return;
     }
@@ -208,14 +208,15 @@ export class QuickExpandSelectionSettingTab extends PluginSettingTab {
           });
       });
     new Setting(containerEl)
-      .setName(move.cursorAfterMove)
-      .setDesc(move.cursorAfterMoveDescription)
-      .addDropdown((dropdown) => {
-        dropdown
-          .addOptions(move.cursorOptions)
-          .setValue(this.plugin.settings.cursorAfterMove)
+      .setName(move.followHotkey)
+      .setDesc(move.followHotkeyDescription)
+      .addText((text) => {
+        text
+          .setPlaceholder(DEFAULT_FOLLOW_TOGGLE_HOTKEY)
+          .setValue(this.plugin.settings.followToggleHotkey)
           .onChange(async (value) => {
-            this.plugin.settings.cursorAfterMove = value as CursorAfterMove;
+            if (!parseHotkey(value)) return;
+            this.plugin.settings.followToggleHotkey = value;
             await this.plugin.saveSettings();
           });
       });

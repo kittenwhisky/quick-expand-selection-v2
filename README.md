@@ -140,7 +140,8 @@ Indentation goes by level number, so an H3 sits in the H3 column even when the n
 | ↑ / ↓ | Move through the list |
 | Tab | Autocomplete: fill the box with the highlighted heading |
 | Enter | Move the text under the highlighted heading |
-| Alt+A (configurable) | Switch between Append and Prepend |
+| Alt+A (configurable) | Switch between Prepend and Append |
+| Alt+F (configurable) | Switch between Stay and Follow |
 | Esc | Cancel |
 
 - Long headings are cut off with "…"; hover to see the full heading.
@@ -162,22 +163,30 @@ The hotkeys you have assigned to Obsidian's fold commands also work in the headi
 - The list opens fully unfolded each time.
 - While the list is open, these keys act on the list only, not on the note behind it.
 
-### Append and Prepend
+### The toggles: Prepend/Append and Stay/Follow
 
-Below the search box sits a toggle like the ones in Obsidian's settings: **Prepend [toggle] Append (Alt+A)**. Switched to the left means Prepend, to the right means Append, and the active word is shown brighter. Click the toggle or either word, or press the hotkey shown in brackets.
+Below the search box sit two toggles like the ones in Obsidian's settings:
+
+**Prepend [toggle] Append (Alt+A)** │ **Stay [toggle] Follow (Alt+F)**
+
+Switched to the left means the left word, to the right the right word, and the active word is shown brighter. Click a toggle or either of its words, or press the hotkey shown in brackets. Both toggles remember your last choice, starting with Append and Stay.
+
+**Where the text goes:**
 
 - **Prepend:** directly below the heading line, above the content already there.
 - **Append:** after the heading's own text, before its first subheading. Blank lines before the subheading stay where they are. If the heading has no text of its own, the text goes directly below the heading.
 
-The toggle remembers your last choice, starting with Append.
+
+**Where the cursor goes afterwards:**
+
+- **Stay:** the cursor stays where the text was removed, with nothing selected.
+- **Follow:** the whole moved text is selected at its new place, and the note scrolls to it.
 
 ### What moves
 
 - **Nothing selected:** nothing moves; a notice asks you to select some text.
 - **Whole lines** (the selection starts at a line start and ends at a line end): those lines move as they are, including list markers and indentation.
 - **Part of a line:** a pop-up asks you to confirm first. Only the selected text moves, onto its own line(s) under the heading; the rest of the line stays.
-
-Afterwards the cursor stays where the text was removed, or, if you choose **Follow the moved text** in the settings, the moved text is selected at its new place.
 
 The move is a single edit: **Ctrl/Cmd+Z** undoes it in one step and **Ctrl+Y** (Cmd+Shift+Z on macOS) redoes it. If the note changes while the heading list is open (for example a sync), nothing moves and a notice says so.
 
@@ -234,7 +243,7 @@ Each V2 command simply runs the core command, so nothing is reimplemented. Their
 | Setting | Default | Effect |
 |---|---|---|
 | Append/Prepend toggle hotkey | Alt+A | Switches the toggle while the heading list is open. Write modifiers plus one key, e.g. `Alt+A` or `Mod+Shift+P` (Mod is Ctrl, or Cmd on macOS). Letters match by key position, so Option+A works on macOS. |
-| Cursor after moving | Stay where it was | Or **Follow the moved text**: select the text at its new place. |
+| Stay/Follow toggle hotkey | Alt+F | Switches the Stay/Follow toggle while the heading list is open. Same format as above. |
 
 ### Core commands
 
