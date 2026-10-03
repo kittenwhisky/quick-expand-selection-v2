@@ -19,6 +19,22 @@ export interface LocaleStrings {
     resetHistoryDescription: string;
     resetButton: string;
   };
+  coreCommands: {
+    heading: string;
+    wrap: string;
+    wrapDescription: string;
+    listName: string;
+  };
+  lists: {
+    heading: string;
+    dragAndDrop: string;
+    dragAndDropDescription: string;
+    verticalLines: string;
+    verticalLinesDescription: string;
+    verticalLinesAction: string;
+    verticalLinesActionDescription: string;
+    verticalLinesActions: Record<"none" | "zoom-in" | "toggle-folding", string>;
+  };
   notices: {
     expansionHistoryReset: string;
   };
@@ -54,6 +70,22 @@ const en: LocaleStrings = {
     resetHistoryDescription: "Clear the expansion history for the current editor.",
     resetButton: "Reset"
   },
+  coreCommands: {
+    heading: "Core commands",
+    wrap: "Wrap useful core commands",
+    wrapDescription: "Add a command for each core command below that simply runs it, so they all appear together when you filter the command palette by this plugin's name. The core commands and their hotkeys are unchanged.",
+    listName: "Wrapped core commands"
+  },
+  lists: {
+    heading: "Lists",
+    dragAndDrop: "Drag-and-drop",
+    dragAndDropDescription: "Drag a bullet (or its checkbox or fold arrow) to move the item and its children. Press Escape to cancel. Desktop only.",
+    verticalLines: "Draw vertical indentation lines",
+    verticalLinesDescription: "Draw a line from each bullet down past its children.",
+    verticalLinesAction: "Vertical indentation line click action",
+    verticalLinesActionDescription: "What clicking a vertical line does. Zoom in needs the Zoom plugin.",
+    verticalLinesActions: { none: "None", "zoom-in": "Zoom in", "toggle-folding": "Toggle folding" }
+  },
   notices: {
     expansionHistoryReset: "Expansion history reset."
   }
@@ -88,6 +120,22 @@ const zhCn: LocaleStrings = {
     resetHistory: "重置扩选历史",
     resetHistoryDescription: "清除当前编辑器中的扩选层级记录。",
     resetButton: "重置"
+  },
+  coreCommands: {
+    heading: "核心命令",
+    wrap: "包装常用核心命令",
+    wrapDescription: "为下列每个核心命令添加一个直接运行它的命令，这样在命令面板中按本插件名称筛选时它们会一起出现。核心命令及其快捷键保持不变。",
+    listName: "已包装的核心命令"
+  },
+  lists: {
+    heading: "列表",
+    dragAndDrop: "拖放",
+    dragAndDropDescription: "拖动项目符号（或复选框、折叠箭头）以移动该项及其子项。按 Esc 取消。仅限桌面端。",
+    verticalLines: "绘制垂直缩进线",
+    verticalLinesDescription: "从每个项目符号向下绘制一条贯穿其子项的线。",
+    verticalLinesAction: "垂直缩进线点击操作",
+    verticalLinesActionDescription: "点击垂直线时执行的操作。放大需要 Zoom 插件。",
+    verticalLinesActions: { none: "无", "zoom-in": "放大", "toggle-folding": "切换折叠" }
   },
   notices: {
     expansionHistoryReset: "已重置扩选历史"

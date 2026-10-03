@@ -1,13 +1,14 @@
 {
   "name": "quick-expand-selection-v2",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Configurable Markdown-aware expand and shrink selection commands for Obsidian.",
   "main": "main.js",
   "scripts": {
     "build": "rollup --config rollup.config.mjs --environment BUILD:production",
     "dev": "rollup --config rollup.config.mjs --watch",
     "test": "node --import tsx --test tests/*.test.ts",
-    "check": "tsc --noEmit -p tsconfig.json && npm test && npm run build"
+    "typecheck": "node scripts/typecheck.mjs",
+    "check": "npm run typecheck && npm test && npm run build"
   },
   "keywords": [
     "obsidian",
@@ -17,6 +18,9 @@
   "author": "MuShan-bit",
   "license": "MIT",
   "devDependencies": {
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.13",
     "@rollup/plugin-node-resolve": "^15.3.1",
     "@rollup/plugin-typescript": "^11.1.6",
     "@types/node": "^22.10.2",

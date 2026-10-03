@@ -238,3 +238,37 @@ test("extra steps work on bullet and heading lines", () => {
   assert.equal(ladder(text, cursor(text, "note"), rules)[1], "(the note)");
   assert.equal(ladder(text, cursor(text, "draft"), rules)[1], "(draft)");
 });
+
+test("README worked example", () => {
+  const text = [
+    "# Project",
+    "",
+    "## Tasks",
+    "Plan the week. Then review it!",
+    "",
+    "- Write report",
+    "  - Draft",
+    "    - Outline",
+    "  - Edit",
+    "- Send report",
+    "",
+    "## Notes"
+  ].join("\n");
+  const tasks = text.slice(text.indexOf("## Tasks"), text.indexOf("\n## Notes"));
+  assert.deepEqual(ladder(text, cursor(text, "Outline")), [
+    "Outline",
+    "    - Outline",
+    "  - Draft\n    - Outline",
+    "- Write report\n  - Draft\n    - Outline\n  - Edit",
+    "- Write report\n  - Draft\n    - Outline\n  - Edit\n- Send report",
+    tasks,
+    text
+  ]);
+  assert.deepEqual(ladder(text, cursor(text, "review")), [
+    "review",
+    "Then review it!",
+    "Plan the week. Then review it!",
+    tasks,
+    text
+  ]);
+});

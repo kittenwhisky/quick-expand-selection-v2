@@ -1,9 +1,9 @@
 {
   "id": "quick-expand-selection-v2",
   "name": "Quick Expand Selection V2",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "minAppVersion": "1.8.7",
-  "description": "Expand and shrink text selections with Markdown-aware, configurable boundaries. Fork of MuShan-bit's Quick Expand Selection.",
+  "description": "Structural expand and shrink selection, list drag-and-drop and indentation lines, and related core commands in one place. Fork of MuShan-bit's Quick Expand Selection, with features adapted from Outliner.",
   "author": "MuShan-bit (V2 changes: kittenwhisky)",
   "authorUrl": "https://github.com/kittenwhisky/quick-expand-selection-v2",
   "isDesktopOnly": false

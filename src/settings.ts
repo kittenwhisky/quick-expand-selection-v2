@@ -2,10 +2,13 @@ import { App, PluginSettingTab, Setting, type SettingDefinitionItem } from "obsi
 import type QuickExpandSelectionPlugin from "./main";
 import { DEFAULT_SENTENCE_MARKERS, getDefaultSelectionRules, type SelectionRules } from "./selection";
 import { getLocaleStrings } from "./i18n";
+import { WRAPPED_CORE_COMMANDS, coreCommandName } from "./coreCommands";
 
 const STRUCTURE_RULES: Array<keyof SelectionRules> = ["list", "heading", "sentence", "code", "latex"];
 const EXTRA_STEP_RULES: Array<keyof SelectionRules> = ["whitespace", "punctuation", "pairs", "token", "line"];
 const SENTENCE_MARKERS_KEY = "sentenceMarkers";
+const LIST_KEYS = ["dragAndDrop", "verticalLines", "verticalLinesAction"] as const;
+type ListKey = (typeof LIST_KEYS)[number];
 
 export class QuickExpandSelectionSettingTab extends PluginSettingTab {
   constructor(app: App, private readonly plugin: QuickExpandSelectionPlugin) {
@@ -25,7 +28,50 @@ export class QuickExpandSelectionSettingTab extends PluginSettingTab {
         defaultValue: defaults[key]
       }
     });
+    const list = strings.lists;
+    const core = strings.coreCommands;
     return [
+      {
+        type: "group",
+        heading: core.heading,
+        items: [
+          {
+            name: core.wrap,
+            desc: core.wrapDescription,
+            control: { type: "toggle" as const, key: "wrapCoreCommands", defaultValue: true }
+          },
+          {
+            name: core.listName,
+            desc: this.wrappedCommandList()
+          }
+        ]
+      },
+      {
+        type: "group",
+        heading: list.heading,
+        items: [
+          {
+            name: list.dragAndDrop,
+            desc: list.dragAndDropDescription,
+            control: { type: "toggle" as const, key: "dragAndDrop", defaultValue: true }
+          },
+          {
+            name: list.verticalLines,
+            desc: list.verticalLinesDescription,
+            control: { type: "toggle" as const, key: "verticalLines", defaultValue: true }
+          },
+          {
+            name: list.verticalLinesAction,
+            desc: list.verticalLinesActionDescription,
+            control: {
+              type: "dropdown" as const,
+              key: "verticalLinesAction",
+              defaultValue: "toggle-folding",
+              options: list.verticalLinesActions
+            }
+          }
+        ]
+      },
       {
         type: "group",
         heading: strings.settings.heading,
@@ -67,12 +113,26 @@ export class QuickExpandSelectionSettingTab extends PluginSettingTab {
   }
 
   override getControlValue(key: string): unknown {
+    if (key === "wrapCoreCommands") return this.plugin.settings.wrapCoreCommands;
+    if (this.isListKey(key)) return this.plugin.settings[key];
     if (key === SENTENCE_MARKERS_KEY) return this.plugin.settings.sentenceMarkers;
     const rule = this.getRuleKey(key);
     return rule ? this.plugin.settings.rules[rule] : undefined;
   }
 
   override async setControlValue(key: string, value: unknown): Promise<void> {
+    if (key === "verticalLinesAction") {
+      if (typeof value !== "string" || !(value in getLocaleStrings().lists.verticalLinesActions)) return;
+      this.plugin.settings.verticalLinesAction = value as QuickExpandSelectionPlugin["settings"]["verticalLinesAction"];
+      await this.plugin.saveSettings();
+      return;
+    }
+    if (key === "dragAndDrop" || key === "verticalLines" || key === "wrapCoreCommands") {
+      if (typeof value !== "boolean") return;
+      this.plugin.settings[key] = value;
+      await this.plugin.saveSettings();
+      return;
+    }
     if (key === SENTENCE_MARKERS_KEY) {
       if (typeof value !== "string") return;
       this.plugin.settings.sentenceMarkers = value;
@@ -90,6 +150,45 @@ export class QuickExpandSelectionSettingTab extends PluginSettingTab {
     const strings = getLocaleStrings();
     const { containerEl } = this;
     containerEl.empty();
+    const list = strings.lists;
+    const core = strings.coreCommands;
+
+    new Setting(containerEl).setName(core.heading).setHeading();
+    new Setting(containerEl)
+      .setName(core.wrap)
+      .setDesc(core.wrapDescription)
+      .addToggle((toggle) => {
+        toggle.setValue(this.plugin.settings.wrapCoreCommands).onChange(async (value) => {
+          this.plugin.settings.wrapCoreCommands = value;
+          await this.plugin.saveSettings();
+        });
+      });
+    new Setting(containerEl).setName(core.listName).setDesc(this.wrappedCommandList());
+
+    new Setting(containerEl).setName(list.heading).setHeading();
+    for (const key of ["dragAndDrop", "verticalLines"] as const) {
+      new Setting(containerEl)
+        .setName(list[key])
+        .setDesc(list[`${key}Description`])
+        .addToggle((toggle) => {
+          toggle.setValue(this.plugin.settings[key]).onChange(async (value) => {
+            this.plugin.settings[key] = value;
+            await this.plugin.saveSettings();
+          });
+        });
+    }
+    new Setting(containerEl)
+      .setName(list.verticalLinesAction)
+      .setDesc(list.verticalLinesActionDescription)
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOptions(list.verticalLinesActions)
+          .setValue(this.plugin.settings.verticalLinesAction)
+          .onChange(async (value) => {
+            this.plugin.settings.verticalLinesAction = value as QuickExpandSelectionPlugin["settings"]["verticalLinesAction"];
+            await this.plugin.saveSettings();
+          });
+      });
 
     const addToggle = (key: keyof SelectionRules): void => {
       const description = strings.rules[key];
@@ -134,6 +233,20 @@ export class QuickExpandSelectionSettingTab extends PluginSettingTab {
           this.plugin.clearSelectionHistory();
         });
       });
+  }
+
+  /** The wrapped commands, one per line, by their core names. */
+  private wrappedCommandList(): DocumentFragment {
+    const fragment = document.createDocumentFragment();
+    const items = fragment.createEl("ul");
+    for (const { id, fallbackName } of WRAPPED_CORE_COMMANDS) {
+      items.createEl("li", { text: coreCommandName(this.app, id, fallbackName) });
+    }
+    return fragment;
+  }
+
+  private isListKey(key: string): key is ListKey {
+    return (LIST_KEYS as readonly string[]).includes(key);
   }
 
   private getRuleKey(key: string): keyof SelectionRules | null {

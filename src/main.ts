@@ -12,6 +12,15 @@ import {
 } from "./selection";
 import { QuickExpandSelectionSettingTab } from "./settings";
 import { getLocaleStrings } from "./i18n";
+import { registerCoreCommandWrappers, removeCoreCommandWrappers } from "./coreCommands";
+import { ChangesApplicator } from "./outliner/ChangesApplicator";
+import { DragAndDrop } from "./outliner/DragAndDrop";
+import type { Feature } from "./outliner/Feature";
+import { ObsidianSettings } from "./outliner/ObsidianSettings";
+import { OperationPerformer } from "./outliner/OperationPerformer";
+import { Parser } from "./outliner/Parser";
+import type { Settings as OutlinerSettings, VerticalLinesAction } from "./outliner/Settings";
+import { VerticalLines } from "./outliner/VerticalLines";
 
 const SETTINGS_VERSION = 2;
 
@@ -19,12 +28,22 @@ export interface QuickExpandSelectionSettings {
   version: number;
   rules: SelectionRules;
   sentenceMarkers: string;
+  dragAndDrop: boolean;
+  verticalLines: boolean;
+  verticalLinesAction: VerticalLinesAction;
+  wrapCoreCommands: boolean;
 }
+
+const VERTICAL_LINES_ACTIONS: VerticalLinesAction[] = ["none", "zoom-in", "toggle-folding"];
 
 const DEFAULT_SETTINGS: QuickExpandSelectionSettings = {
   version: SETTINGS_VERSION,
   rules: getDefaultSelectionRules(),
-  sentenceMarkers: DEFAULT_SENTENCE_MARKERS
+  sentenceMarkers: DEFAULT_SENTENCE_MARKERS,
+  dragAndDrop: true,
+  verticalLines: true,
+  verticalLinesAction: "toggle-folding",
+  wrapCoreCommands: true
 };
 
 // Rules whose meaning changed in V2 (they became opt-in fine-grained steps), so values saved by
@@ -39,6 +58,18 @@ interface EditorHistory {
 export default class QuickExpandSelectionPlugin extends Plugin {
   override settings: QuickExpandSelectionSettings = DEFAULT_SETTINGS;
   private readonly historyByEditor = new WeakMap<Editor, EditorHistory>();
+  private readonly settingsCallbacks = new Set<() => void>();
+  private features: Feature[] = [];
+  private coreCommandsWrapped = false;
+
+  /** The view of these settings that the features adapted from Outliner read. */
+  readonly outlinerSettings: OutlinerSettings = ((plugin: QuickExpandSelectionPlugin): OutlinerSettings => ({
+    get dragAndDrop() { return plugin.settings.dragAndDrop; },
+    get verticalLines() { return plugin.settings.verticalLines; },
+    get verticalLinesAction() { return plugin.settings.verticalLinesAction; },
+    onChange: (callback) => { plugin.settingsCallbacks.add(callback); },
+    removeCallback: (callback) => { plugin.settingsCallbacks.delete(callback); }
+  }))(this);
 
   override async onload(): Promise<void> {
     await this.loadSettings();
@@ -59,10 +90,22 @@ export default class QuickExpandSelectionPlugin extends Plugin {
       hotkeys: [{ modifiers: ["Mod", "Shift"], key: "a" }],
       editorCallback: (editor) => this.shrink(editor)
     });
+
+    this.applyCoreCommandWrappers();
+
+    const obsidianSettings = new ObsidianSettings(this.app);
+    const parser = new Parser();
+    const operationPerformer = new OperationPerformer(parser, new ChangesApplicator());
+    this.features = [
+      new VerticalLines(this, this.outlinerSettings, obsidianSettings, parser),
+      new DragAndDrop(this, this.outlinerSettings, obsidianSettings, parser, operationPerformer)
+    ];
+    for (const feature of this.features) await feature.load();
   }
 
-  override onunload(): void {
+  override async onunload(): Promise<void> {
     // WeakMap history is released with its editor instances.
+    for (const feature of this.features) await feature.unload();
   }
 
   async loadSettings(): Promise<void> {
@@ -78,12 +121,27 @@ export default class QuickExpandSelectionPlugin extends Plugin {
     this.settings = {
       version: SETTINGS_VERSION,
       rules,
-      sentenceMarkers: typeof saved?.sentenceMarkers === "string" ? saved.sentenceMarkers : DEFAULT_SENTENCE_MARKERS
+      sentenceMarkers: typeof saved?.sentenceMarkers === "string" ? saved.sentenceMarkers : DEFAULT_SENTENCE_MARKERS,
+      dragAndDrop: typeof saved?.dragAndDrop === "boolean" ? saved.dragAndDrop : DEFAULT_SETTINGS.dragAndDrop,
+      verticalLines: typeof saved?.verticalLines === "boolean" ? saved.verticalLines : DEFAULT_SETTINGS.verticalLines,
+      verticalLinesAction: VERTICAL_LINES_ACTIONS.includes(saved?.verticalLinesAction as VerticalLinesAction)
+        ? saved?.verticalLinesAction as VerticalLinesAction
+        : DEFAULT_SETTINGS.verticalLinesAction,
+      wrapCoreCommands: typeof saved?.wrapCoreCommands === "boolean" ? saved.wrapCoreCommands : DEFAULT_SETTINGS.wrapCoreCommands
     };
   }
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
+    this.applyCoreCommandWrappers();
+    for (const callback of this.settingsCallbacks) callback();
+  }
+
+  private applyCoreCommandWrappers(): void {
+    if (this.settings.wrapCoreCommands === this.coreCommandsWrapped) return;
+    if (this.settings.wrapCoreCommands) registerCoreCommandWrappers(this);
+    else removeCoreCommandWrappers(this);
+    this.coreCommandsWrapped = this.settings.wrapCoreCommands;
   }
 
   clearSelectionHistory(): void {

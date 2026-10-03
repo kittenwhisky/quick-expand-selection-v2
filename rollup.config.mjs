@@ -11,7 +11,7 @@ export default {
     sourcemap: !isProduction,
     exports: "default"
   },
-  external: ["obsidian"],
+  external: ["obsidian", "@codemirror/language", "@codemirror/state", "@codemirror/view"],
   plugins: [
     nodeResolve({ browser: true }),
     typescript({

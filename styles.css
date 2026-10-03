@@ -1,0 +1,88 @@
+/* Vertical indentation lines and drag-and-drop, adapted from Outliner (MIT, see src/outliner/LICENSE). */
+
+/* lines */
+.qes-outliner-list-lines-scroller {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  padding: var(--file-margins);
+  padding-left: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.qes-outliner-list-lines-content-container {
+  position: relative;
+}
+
+.qes-outliner-list-line {
+  pointer-events: auto;
+  position: absolute;
+  width: 5px;
+  margin-left: 0.5ch;
+  margin-top: 1em;
+  z-index: 1;
+  cursor: pointer;
+  background: transparent;
+  background-image: linear-gradient(
+    to right,
+    var(--text-faint) 1px,
+    transparent 1px
+  );
+  background-position-x: 2px;
+  background-repeat: no-repeat;
+}
+
+.markdown-source-view.mod-cm6.is-readable-line-width
+  .qes-outliner-list-lines-content-container {
+  max-width: 700px;
+  margin: auto;
+}
+
+.qes-outliner-list-line:hover {
+  background: var(--text-faint);
+}
+
+.qes-outliner-vertical-lines
+  .markdown-source-view.mod-cm6
+  .cm-hmd-list-indent
+  .cm-indent::before {
+  content: none;
+}
+
+/* drag-n-drop */
+.qes-outliner-dropping-line {
+  background-color: hsla(var(--interactive-accent-hsl), 0.4);
+}
+
+.qes-outliner-dragging-line {
+  opacity: 0.5;
+  background-color: hsla(var(--interactive-accent-hsl), 0.2);
+}
+
+.qes-outliner-drop-zone {
+  width: 300px;
+  height: 4px;
+  background: var(--color-accent);
+  z-index: 999;
+  position: absolute;
+  pointer-events: none;
+}
+
+.qes-outliner-drop-zone-padding {
+  position: absolute;
+  height: 4px;
+}
+
+body.qes-outliner-dnd:not(.qes-outliner-dragging) .cm-formatting-list,
+body.qes-outliner-dnd:not(.qes-outliner-dragging)
+  .cm-fold-indicator
+  .collapse-indicator {
+  cursor: grab !important;
+}
+
+html body.qes-outliner-dnd.qes-outliner-dragging {
+  cursor: grabbing !important;
+}
